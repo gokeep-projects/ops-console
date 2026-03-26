@@ -951,11 +951,19 @@ function renderTrendModal(key, options = {}) {
   const renderPoints = downsampleTrendPoints(points, TREND_MAX_RENDER_POINTS);
   const chartWidth = Math.max(TREND_DETAIL_MIN_WIDTH, Math.round(renderPoints.length * TREND_DETAIL_POINT_PX));
 
-  const latest = points[points.length - 1].value;
+  const latestPoint = points[points.length - 1];
+  const latest = latestPoint.value;
   const highest = Math.max(...points.map((p) => Number(p.value || 0)));
   const lowest = Math.min(...points.map((p) => Number(p.value || 0)));
+  const latestTimeText = formatTimeValue(latestPoint.ts);
+  const refreshSec = Math.max(1, Number(state.config?.monitor?.refresh_seconds || 5));
   const html = `
     <div class="trend-modal-wrap">
+      <div class="trend-live-bar">
+        <span class="trend-live-item trend-live-now"><span class="trend-live-dot"></span>当前最新值 <strong>${escapeHTML(cfg.format(latest))}</strong></span>
+        <span class="trend-live-item">采样时间 ${escapeHTML(latestTimeText)}</span>
+        <span class="trend-live-item">实时刷新 ${refreshSec} 秒</span>
+      </div>
       <div class="trend-modal-meta">近24小时采样点 ${points.length}，最新值 ${escapeHTML(cfg.format(latest))}，最高值 ${escapeHTML(cfg.format(highest))}，最低值 ${escapeHTML(cfg.format(lowest))}</div>
       <div class="trend-modal-chart">
         <div class="trend-modal-scroll">
