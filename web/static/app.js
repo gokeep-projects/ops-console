@@ -13,6 +13,9 @@
     diskio: [],
   },
   trendLastSample: null,
+  activeTrendKey: "",
+  activeTrendAutoFollow: true,
+  activeTrendScrollLeft: 0,
   diskLastSample: null,
   lastDiskRealtime: null,
   scripts: [],
@@ -20,6 +23,7 @@
   logRules: [],
   currentApp: null,
   currentRunId: null,
+  logRealtimeTimer: null,
 };
 
 const bootState = {
@@ -31,6 +35,7 @@ let bootFinished = false;
 let bootRunning = false;
 let bootFallbackTimer = null;
 let copyToastTimer = null;
+let appToastTimer = null;
 
 const TREND_KEEP_MS = 24 * 60 * 60 * 1000;
 const TREND_MINI_MS = 60 * 60 * 1000;
@@ -91,6 +96,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }, 180000);
 
   try {
+    bindSidebarToggle();
     bindMenu();
     switchSection("monitor");
     bindMonitorActions();
@@ -104,6 +110,37 @@ document.addEventListener("DOMContentLoaded", () => {
     updateBoot("页面初始化失败，请刷新后重试", 0);
   }
 });
+
+function bindSidebarToggle() {
+  const layout = document.getElementById("mainLayout");
+  const sidebarToggleBtn = document.getElementById("sidebarToggleBtn");
+  const sidebarExpandBtn = document.getElementById("sidebarExpandBtn");
+  if (!layout || !sidebarToggleBtn || !sidebarExpandBtn) return;
+
+  const setCollapsed = (collapsed) => {
+    const isCollapsed = !!collapsed;
+    layout.classList.toggle("sidebar-collapsed", isCollapsed);
+    sidebarToggleBtn.textContent = isCollapsed ? "展开" : "收起";
+    sidebarToggleBtn.title = isCollapsed ? "展开系统菜单" : "收起系统菜单";
+    sidebarToggleBtn.setAttribute("aria-label", isCollapsed ? "展开系统菜单" : "收起系统菜单");
+    sidebarToggleBtn.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
+    sidebarExpandBtn.textContent = "展开";
+    sidebarExpandBtn.title = "展开系统菜单";
+    sidebarExpandBtn.setAttribute("aria-label", "展开系统菜单");
+    sidebarExpandBtn.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
+  };
+
+  setCollapsed(false);
+
+  sidebarToggleBtn.addEventListener("click", () => {
+    const collapsed = !layout.classList.contains("sidebar-collapsed");
+    setCollapsed(collapsed);
+  });
+
+  sidebarExpandBtn.addEventListener("click", () => {
+    setCollapsed(false);
+  });
+}
 
 async function bootstrap() {
   if (bootFinished || bootRunning) return;
@@ -204,6 +241,7 @@ function switchSection(target) {
     panel.classList.toggle("visible", visible);
     panel.style.display = visible ? "" : "none";
   });
+  syncLogRealtimeState(target);
 }
 
 function bindMonitorActions() {
@@ -326,7 +364,7 @@ async function downloadRealtimeStatusTxt() {
   }
 
   if (!snapshot) {
-    alert("当前暂无可下载的监控数据");
+    showAppToast("当前暂无可下载的监控数据", "warning");
     return;
   }
 
@@ -505,6 +543,30 @@ function bindLogActions() {
   document.getElementById("logAddCardBtn").addEventListener("click", openAddLogCardModal);
 }
 
+function syncLogRealtimeState(activeSection = "") {
+  const current = String(activeSection || "").trim() || String(document.querySelector(".panel.visible")?.id || "").trim();
+  if (current !== "logs" || !state.currentApp) {
+    stopLogRealtimeLoop();
+    return;
+  }
+  startLogRealtimeLoop();
+}
+
+function startLogRealtimeLoop() {
+  stopLogRealtimeLoop();
+  const intervalMS = 2000;
+  state.logRealtimeTimer = setInterval(() => {
+    if (!state.currentApp) return;
+    queryLogs(false, { silent: true, fromRealtime: true });
+  }, intervalMS);
+}
+
+function stopLogRealtimeLoop() {
+  if (!state.logRealtimeTimer) return;
+  clearInterval(state.logRealtimeTimer);
+  state.logRealtimeTimer = null;
+}
+
 function bindRepairActions() {
   document.getElementById("uploadScriptForm").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -512,18 +574,19 @@ function bindRepairActions() {
     const res = await fetch("/api/scripts/upload", { method: "POST", body: form });
     const data = await res.json();
     if (!res.ok) {
-      alert(data.error || "上传失败");
+      showAppToast(data.error || "上传失败", "error");
       return;
     }
     event.target.reset();
     await loadScripts();
+    showAppToast("脚本上传成功", "success");
   });
 
   document.getElementById("runScriptBtn").addEventListener("click", async () => {
     const name = document.getElementById("scriptName").value;
     const args = document.getElementById("scriptArgs").value;
     if (!name) {
-      alert("请选择脚本");
+      showAppToast("请选择脚本", "warning");
       return;
     }
 
@@ -534,10 +597,11 @@ function bindRepairActions() {
     });
     const data = await res.json();
     if (!res.ok) {
-      alert(data.error || "执行失败");
+      showAppToast(data.error || "执行失败", "error");
       return;
     }
     state.currentRunId = data.run_id;
+    showAppToast("脚本已开始执行", "success");
     pollRunDetail();
   });
 }
@@ -555,10 +619,11 @@ function bindBackupActions() {
     });
     const data = await res.json();
     if (!res.ok) {
-      alert(data.error || "备份失败");
+      showAppToast(data.error || "备份失败", "error");
       return;
     }
     await loadBackups();
+    showAppToast("备份任务已提交", "success");
   });
 }
 
@@ -734,6 +799,7 @@ function renderMonitor(data) {
   renderTable("serviceList", ["名称", "类型", "状态", "匹配详情"], serviceRows, true);
 
   renderTrendCards();
+  refreshTrendModalIfOpen();
 
   renderProcessTable();
 }
@@ -847,30 +913,50 @@ function renderTrendCards() {
       return;
     }
     const latest = points[points.length - 1].value;
-    const first = points[0].value;
     const highest = Math.max(...points.map((p) => Number(p.value || 0)));
-    const highestDelta = highest - first;
-    const sign = highestDelta >= 0 ? "+" : "";
-    info.textContent = `最新 ${cfg.format(latest)} | 最高 ${sign}${cfg.format(highestDelta)}`;
+    info.textContent = `最新 ${cfg.format(latest)} | 最高 ${cfg.format(highest)}`;
   });
 }
 
 function openTrendModal(key) {
+  state.activeTrendKey = String(key || "");
+  state.activeTrendAutoFollow = true;
+  state.activeTrendScrollLeft = 0;
+  renderTrendModal(state.activeTrendKey, { open: true });
+}
+
+function refreshTrendModalIfOpen() {
+  if (!state.activeTrendKey) return;
+  const mask = document.getElementById("modalMask");
+  if (!mask || mask.classList.contains("hidden")) {
+    clearActiveTrendModalState();
+    return;
+  }
+  renderTrendModal(state.activeTrendKey, { open: false });
+}
+
+function renderTrendModal(key, options = {}) {
   const cfg = TREND_SERIES[key];
   if (!cfg) return;
+  const open = !!options.open;
   const points = selectTrendWindow(state.trendHistory[key] || [], TREND_KEEP_MS);
   if (!points.length) {
-    openModal(cfg.title, `<div class="trend-empty">暂无趋势数据</div>`);
+    if (open) {
+      openModal(cfg.title, `<div class="trend-empty">暂无趋势数据</div>`, { keepTrend: true });
+    } else {
+      setModalContent(cfg.title, `<div class="trend-empty">暂无趋势数据</div>`);
+    }
     return;
   }
   const renderPoints = downsampleTrendPoints(points, TREND_MAX_RENDER_POINTS);
   const chartWidth = Math.max(TREND_DETAIL_MIN_WIDTH, Math.round(renderPoints.length * TREND_DETAIL_POINT_PX));
 
   const latest = points[points.length - 1].value;
-  const oldest = points[0].value;
+  const highest = Math.max(...points.map((p) => Number(p.value || 0)));
+  const lowest = Math.min(...points.map((p) => Number(p.value || 0)));
   const html = `
     <div class="trend-modal-wrap">
-      <div class="trend-modal-meta">近24小时采样点 ${points.length}，最新值 ${escapeHTML(cfg.format(latest))}，起点 ${escapeHTML(cfg.format(oldest))}</div>
+      <div class="trend-modal-meta">近24小时采样点 ${points.length}，最新值 ${escapeHTML(cfg.format(latest))}，最高值 ${escapeHTML(cfg.format(highest))}，最低值 ${escapeHTML(cfg.format(lowest))}</div>
       <div class="trend-modal-chart">
         <div class="trend-modal-scroll">
           <div class="trend-modal-canvas" style="width:${chartWidth}px">
@@ -880,13 +966,24 @@ function openTrendModal(key) {
       </div>
     </div>
   `;
-  openModal(cfg.title, html);
+  if (open) {
+    openModal(cfg.title, html, { keepTrend: true });
+  } else {
+    setModalContent(cfg.title, html);
+  }
+
   requestAnimationFrame(() => {
     const scrollBox = document.querySelector("#modalBody .trend-modal-scroll");
-    if (scrollBox) {
-      scrollBox.scrollLeft = Math.max(0, scrollBox.scrollWidth - scrollBox.clientWidth);
+    if (!scrollBox) return;
+    const maxLeft = Math.max(0, scrollBox.scrollWidth - scrollBox.clientWidth);
+    if (state.activeTrendAutoFollow) {
+      scrollBox.scrollLeft = maxLeft;
+    } else {
+      const remember = Number(state.activeTrendScrollLeft || 0);
+      scrollBox.scrollLeft = Math.max(0, Math.min(maxLeft, remember));
     }
   });
+
   bindTrendModalHover(renderPoints, cfg);
 }
 
@@ -1066,9 +1163,26 @@ function bindTrendModalHover(points, cfg) {
   chart.addEventListener("mousemove", (e) => onMove(e.clientX));
   chart.addEventListener("mouseleave", hide);
 
+  if (scrollBox) {
+    const syncFollowState = () => {
+      const maxLeft = Math.max(0, scrollBox.scrollWidth - scrollBox.clientWidth);
+      state.activeTrendScrollLeft = Number(scrollBox.scrollLeft || 0);
+      state.activeTrendAutoFollow = maxLeft <= 0 || state.activeTrendScrollLeft >= maxLeft - 16;
+    };
+    scrollBox.addEventListener("scroll", syncFollowState);
+  }
+
   requestAnimationFrame(() => {
     const sb = chart.closest(".trend-modal-scroll");
-    if (sb) sb.scrollLeft = Math.max(0, sb.scrollWidth - sb.clientWidth);
+    if (sb) {
+      const maxLeft = Math.max(0, sb.scrollWidth - sb.clientWidth);
+      if (state.activeTrendAutoFollow) {
+        sb.scrollLeft = maxLeft;
+      } else {
+        const remember = Number(state.activeTrendScrollLeft || 0);
+        sb.scrollLeft = Math.max(0, Math.min(maxLeft, remember));
+      }
+    }
     requestAnimationFrame(showLatest);
   });
 }
@@ -1153,7 +1267,16 @@ function renderProcessTable() {
 
   renderTable(
     "topProcessList",
-    ["进程", "类型", "PID", processSortHeader("CPU%", "cpu"), processSortHeader("内存%", "mem"), "线程", "路径", "操作"],
+    [
+      processSortHeader("进程", "name"),
+      processSortHeader("类型", "type"),
+      processSortHeader("PID", "pid"),
+      processSortHeader("CPU%", "cpu"),
+      processSortHeader("内存%", "mem"),
+      processSortHeader("线程", "threads"),
+      "路径",
+      "操作",
+    ],
     rows,
     true,
   );
@@ -1164,83 +1287,145 @@ function bindTopProcessSortHeaders() {
   const table = document.querySelector("#topProcessList table");
   if (!table) return;
   const headers = table.querySelectorAll("thead th");
-  if (headers.length < 5) return;
-  const cpu = headers[3];
-  const mem = headers[4];
-  if (cpu) {
-    cpu.dataset.sortKey = "cpu";
-    cpu.classList.add("sortable");
-    cpu.title = "点击切换 CPU 排序";
-  }
-  if (mem) {
-    mem.dataset.sortKey = "mem";
-    mem.classList.add("sortable");
-    mem.title = "点击切换内存排序";
-  }
+  if (headers.length < 8) return;
+  const sortableDefs = [
+    { index: 0, key: "name", title: "点击切换进程名排序" },
+    { index: 1, key: "type", title: "点击切换类型排序" },
+    { index: 2, key: "pid", title: "点击切换 PID 排序" },
+    { index: 3, key: "cpu", title: "点击切换 CPU 排序" },
+    { index: 4, key: "mem", title: "点击切换内存排序" },
+    { index: 5, key: "threads", title: "点击切换线程排序" },
+  ];
+  sortableDefs.forEach((item) => {
+    const head = headers[item.index];
+    if (!head) return;
+    head.dataset.sortKey = item.key;
+    head.classList.add("sortable");
+    head.title = item.title;
+  });
 }
 
 function processSortHeader(label, key) {
-  const mode = state.processSortMode || "cpu_desc";
-  if (key === "cpu") {
-    if (mode === "cpu_desc") return `${label} ↓`;
-    if (mode === "cpu_asc") return `${label} ↑`;
-    return label;
-  }
-  if (key === "mem") {
-    if (mode === "mem_desc") return `${label} ↓`;
-    if (mode === "mem_asc") return `${label} ↑`;
-    return label;
-  }
+  const mode = String(state.processSortMode || "cpu_desc");
+  const [activeKey, activeDir] = mode.split("_");
+  if (activeKey !== key) return label;
+  if (activeDir === "desc") return `${label} ↓`;
+  if (activeDir === "asc") return `${label} ↑`;
   return label;
 }
 
 function toggleProcessSort(key) {
-  const mode = state.processSortMode || "cpu_desc";
-  if (key === "cpu") {
-    state.processSortMode = mode === "cpu_desc" ? "cpu_asc" : "cpu_desc";
-    renderProcessTable();
-    return;
-  }
-  if (key === "mem") {
-    state.processSortMode = mode === "mem_desc" ? "mem_asc" : "mem_desc";
-    renderProcessTable();
-  }
+  const mode = String(state.processSortMode || "cpu_desc");
+  const [activeKey, activeDir] = mode.split("_");
+  const nextDir = activeKey === key ? (activeDir === "desc" ? "asc" : "desc") : defaultSortDirection(key);
+  state.processSortMode = `${key}_${nextDir}`;
+  renderProcessTable();
+}
+
+function defaultSortDirection(key) {
+  if (["cpu", "mem", "pid", "threads"].includes(key)) return "desc";
+  return "asc";
 }
 
 function compareProcess(a, b, mode) {
-  switch (mode) {
-    case "cpu_asc":
-      return Number(a.cpu || 0) - Number(b.cpu || 0);
-    case "mem_desc":
-      return Number(b.memory || 0) - Number(a.memory || 0);
-    case "mem_asc":
-      return Number(a.memory || 0) - Number(b.memory || 0);
-    case "cpu_desc":
+  const [key, dir] = String(mode || "cpu_desc").split("_");
+  const factor = dir === "asc" ? 1 : -1;
+
+  const aName = String(a?.name || "");
+  const bName = String(b?.name || "");
+  const aType = a?.is_jvm ? "jvm" : "process";
+  const bType = b?.is_jvm ? "jvm" : "process";
+
+  let result = 0;
+  switch (key) {
+    case "name":
+      result = aName.localeCompare(bName, "zh-Hans-CN", { sensitivity: "base", numeric: true });
+      break;
+    case "type":
+      result = aType.localeCompare(bType, "en", { sensitivity: "base" });
+      break;
+    case "pid":
+      result = Number(a?.pid || 0) - Number(b?.pid || 0);
+      break;
+    case "mem":
+      result = Number(a?.memory || 0) - Number(b?.memory || 0);
+      break;
+    case "threads":
+      result = Number(a?.threads || 0) - Number(b?.threads || 0);
+      break;
+    case "cpu":
     default:
-      return Number(b.cpu || 0) - Number(a.cpu || 0);
+      result = Number(a?.cpu || 0) - Number(b?.cpu || 0);
+      break;
   }
+  if (result !== 0) return result * factor;
+
+  const cpuDiff = Number(b?.cpu || 0) - Number(a?.cpu || 0);
+  if (cpuDiff !== 0) return cpuDiff;
+  return Number(a?.pid || 0) - Number(b?.pid || 0);
 }
 
 function mergeProcessList(top, jvm) {
   const out = [];
   const seen = new Set();
   top.forEach((x) => {
-    out.push({ ...x, is_jvm: !!x.is_jvm });
-    seen.add(x.pid);
+    const row = normalizeProcessItem(x, !!x?.is_jvm);
+    if (seen.has(row.pid)) return;
+    out.push(row);
+    seen.add(row.pid);
   });
   jvm.forEach((x) => {
-    if (seen.has(x.pid)) return;
-    out.push({ ...x, is_jvm: true });
-    seen.add(x.pid);
+    const row = normalizeProcessItem(x, true);
+    if (seen.has(row.pid)) return;
+    out.push(row);
+    seen.add(row.pid);
   });
   return out;
+}
+
+function normalizeProcessItem(raw, forceJVM = false) {
+  const row = raw && typeof raw === "object" ? raw : {};
+  const pid = Number(row.pid || 0);
+  const cpu = pickNumber(row.cpu, row.cpu_percent, row.cpuPercent);
+  const memory = pickNumber(row.memory, row.memory_percent, row.mem_percent, row.mem, row.memoryRate);
+  const threads = pickInteger(row.threads, row.thread_count, row.threadCount, row.num_threads);
+  const name = String(row.name || "").trim();
+  const exePath = String(row.exe_path || row.path || "").trim();
+  const cmdline = String(row.cmdline || row.command || "").trim();
+  return {
+    ...row,
+    pid,
+    name: name || (pid > 0 ? `PID-${pid}` : "-"),
+    cpu,
+    memory,
+    threads,
+    exe_path: exePath || "-",
+    cmdline,
+    is_jvm: !!(forceJVM || row.is_jvm),
+  };
+}
+
+function pickNumber(...values) {
+  for (const raw of values) {
+    const n = Number(raw);
+    if (Number.isFinite(n)) return n;
+  }
+  return 0;
+}
+
+function pickInteger(...values) {
+  for (const raw of values) {
+    const n = Number(raw);
+    if (Number.isFinite(n)) return Math.round(n);
+  }
+  return 0;
 }
 
 async function showProcessDetail(pid) {
   const res = await fetch(`/api/processes/${pid}/detail`);
   const data = await res.json();
   if (!res.ok) {
-    alert(data.error || "获取进程详情失败");
+    showAppToast(data.error || "获取进程详情失败", "error");
     return;
   }
   openModal("进程资源详情", renderProcessDetailHTML(data));
@@ -1250,10 +1435,10 @@ async function killProcess(pid) {
   const res = await fetch(`/api/processes/${pid}/kill`, { method: "POST" });
   const data = await res.json();
   if (!res.ok) {
-    alert(data.error || "关闭进程失败");
+    showAppToast(data.error || "关闭进程失败", "error");
     return;
   }
-  alert(`已发送关闭指令，PID=${pid}`);
+  showAppToast(`已发送关闭指令，PID=${pid}`, "success");
   await refreshMonitor();
 }
 
@@ -1294,6 +1479,7 @@ function renderAppCards() {
       renderLogFileSelector();
       renderAppCards();
       queryLogs(false);
+      syncLogRealtimeState("logs");
     });
     box.appendChild(div);
   });
@@ -1321,6 +1507,7 @@ function resolveDefaultLogCard() {
 function ensureCurrentLogCard(triggerQuery = false) {
   if (!Array.isArray(state.apps) || !state.apps.length) {
     state.currentApp = null;
+    stopLogRealtimeLoop();
     renderAppCards();
     setText("logCurrentApp", "当前应用：无");
     renderLogFileSelector();
@@ -1338,6 +1525,7 @@ function ensureCurrentLogCard(triggerQuery = false) {
     setText("logCurrentApp", `当前应用：${state.currentApp.name}`);
     renderLogFileSelector();
     if (triggerQuery) queryLogs(false);
+    syncLogRealtimeState();
   }
 }
 
@@ -1379,11 +1567,11 @@ function openAddLogCardModal() {
       .map((x) => x.trim())
       .filter((x) => x.length > 0);
     if (!name) {
-      alert("请填写卡片名称");
+      showAppToast("请填写卡片名称", "warning");
       return;
     }
     if (!logFiles.length) {
-      alert("请至少填写一个日志源");
+      showAppToast("请至少填写一个日志源", "warning");
       return;
     }
     await createLogCard({ name, type, description, log_files: logFiles });
@@ -1398,11 +1586,12 @@ async function createLogCard(payload) {
   });
   const data = await res.json();
   if (!res.ok) {
-    alert(data.error || "新增日志卡片失败");
+    showAppToast(data.error || "新增日志卡片失败", "error");
     return;
   }
   closeModal();
   await loadApps();
+  showAppToast("日志卡片新增成功", "success");
 }
 
 async function deleteLogCard(name) {
@@ -1412,13 +1601,15 @@ async function deleteLogCard(name) {
   const res = await fetch(`/api/logs/apps/${encodeURIComponent(appName)}`, { method: "DELETE" });
   const data = await res.json();
   if (!res.ok) {
-    alert(data.error || "删除日志卡片失败");
+    showAppToast(data.error || "删除日志卡片失败", "error");
     return;
   }
   if (state.currentApp?.name === appName) {
     state.currentApp = null;
+    stopLogRealtimeLoop();
   }
   await loadApps();
+  showAppToast(`已删除日志卡片：${appName}`, "success");
 }
 
 function renderLogFileSelector() {
@@ -1439,9 +1630,12 @@ function renderLogFileSelector() {
   });
 }
 
-async function queryLogs(errorOnly) {
+async function queryLogs(errorOnly, options = {}) {
+  const silent = !!options.silent;
+  const fromRealtime = !!options.fromRealtime;
+
   if (!state.currentApp) {
-    alert("请先选择应用");
+    if (!silent) showAppToast("请先选择应用", "warning");
     return;
   }
 
@@ -1451,20 +1645,43 @@ async function queryLogs(errorOnly) {
   const limit = document.getElementById("logLimit").value || "300";
   const q = new URLSearchParams({ keyword, level, rule, limit });
 
-  const res = await fetch(`/api/logs/${encodeURIComponent(state.currentApp.name)}?${q.toString()}`);
-  const data = await res.json();
-  if (!res.ok) {
-    alert(data.error || "日志查询失败");
+  let data = null;
+  try {
+    const res = await fetchWithTimeout(`/api/logs/${encodeURIComponent(state.currentApp.name)}?${q.toString()}`, 10000);
+    data = await res.json();
+    if (!res.ok) {
+      if (!silent) showAppToast(data.error || "日志查询失败", "error");
+      return;
+    }
+  } catch (err) {
+    if (!silent) showAppToast("日志查询失败", "error");
+    console.error("query logs failed", err);
     return;
   }
 
-  const lines = (data.items || []).map((x) => `[${x.time}] [${x.level}] [${x.file}] ${x.message}`);
-  document.getElementById("logResult").textContent = lines.join("\n");
+  const items = Array.isArray(data?.items) ? [...data.items] : [];
+  items.sort((a, b) => parseLogTimeValue(a?.time) - parseLogTimeValue(b?.time));
+  const lines = items.map((x) => `[${x.time}] [${x.level}] [${x.file}] ${x.message}`);
+
+  const box = document.getElementById("logResult");
+  if (!box) return;
+  box.textContent = lines.join("\n");
+  if (fromRealtime || !silent) {
+    box.scrollTop = box.scrollHeight;
+  }
+}
+
+function parseLogTimeValue(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return 0;
+  const ts = Date.parse(text.replace(" ", "T"));
+  if (Number.isFinite(ts)) return ts;
+  return 0;
 }
 
 async function exportLogs() {
   if (!state.currentApp) {
-    alert("请先选择应用");
+    showAppToast("请先选择应用", "warning");
     return;
   }
 
@@ -1476,9 +1693,10 @@ async function exportLogs() {
   });
   const data = await res.json();
   if (!res.ok) {
-    alert(data.error || "导出失败");
+    showAppToast(data.error || "导出失败", "error");
     return;
   }
+  showAppToast("日志导出任务已生成", "success");
   window.open(data.download_url, "_blank");
 }
 
@@ -1572,14 +1790,27 @@ async function loadBackups() {
   renderTable("backupList", ["ID", "类型", "名称", "状态", "路径", "信息", "操作"], rows, true);
 }
 
-function openModal(title, html) {
+function setModalContent(title, html) {
   setText("modalTitle", title);
-  document.getElementById("modalBody").innerHTML = html;
+  const body = document.getElementById("modalBody");
+  if (body) body.innerHTML = html;
+}
+
+function clearActiveTrendModalState() {
+  state.activeTrendKey = "";
+  state.activeTrendAutoFollow = true;
+  state.activeTrendScrollLeft = 0;
+}
+
+function openModal(title, html, options = {}) {
+  if (!options.keepTrend) clearActiveTrendModalState();
+  setModalContent(title, html);
   document.getElementById("modalMask").classList.remove("hidden");
   document.body.classList.add("modal-open");
 }
 
 function closeModal() {
+  clearActiveTrendModalState();
   document.getElementById("modalMask").classList.add("hidden");
   document.body.classList.remove("modal-open");
 }
@@ -2383,6 +2614,26 @@ function showCopyToast(message) {
   copyToastTimer = setTimeout(() => {
     toast.classList.remove("show");
   }, 1600);
+}
+
+function showAppToast(message, level = "info", duration = 2200) {
+  let toast = document.getElementById("appToast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "appToast";
+    toast.className = "app-toast";
+    document.body.appendChild(toast);
+  }
+
+  const lv = String(level || "info").toLowerCase();
+  toast.className = `app-toast ${lv}`;
+  toast.textContent = String(message || "");
+  toast.classList.add("show");
+
+  if (appToastTimer) clearTimeout(appToastTimer);
+  appToastTimer = setTimeout(() => {
+    toast.classList.remove("show");
+  }, Math.max(1200, Number(duration || 2200)));
 }
 
 async function fetchWithTimeout(url, timeoutMS, options = {}) {

@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   --bg: #f1f5fb;
   --panel: #ffffff;
   --ink: #122033;
@@ -44,16 +44,123 @@ body.modal-open {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: 250px 1fr;
+  --sidebar-width: 250px;
+  grid-template-columns: var(--sidebar-width) 1fr;
   min-height: 100vh;
+  transition: grid-template-columns 0.2s ease;
 }
 
 .sidebar {
-  padding: 24px 16px;
+  position: relative;
+  padding: 20px 16px 16px;
   border-right: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.86);
   backdrop-filter: blur(8px);
+  transition: padding 0.2s ease, opacity 0.2s ease, border-color 0.2s ease;
 }
+
+.sidebar-top {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 22px;
+  margin-bottom: 8px;
+}
+
+.sidebar-top .sidebar-toggle-btn,
+.sidebar-expand-btn {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(136, 160, 192, 0.58) !important;
+  background: linear-gradient(160deg, #ffffff 8%, #edf4ff 100%) !important;
+  color: #2b5f9c !important;
+  box-shadow:
+    0 8px 18px rgba(21, 57, 98, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.94) !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0;
+  line-height: 1;
+  white-space: nowrap;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.sidebar-top .sidebar-toggle-btn {
+  position: absolute;
+  top: 8px;
+  right: -15px;
+  z-index: 8;
+}
+
+.sidebar-top .sidebar-toggle-btn::before {
+  content: "‹";
+  font-size: 17px;
+  font-weight: 700;
+  transform: translateX(-1px);
+}
+
+.sidebar-expand-btn {
+  position: fixed;
+  left: 9px;
+  top: 14px;
+  z-index: 1320;
+  display: none;
+}
+
+.sidebar-expand-btn::before {
+  content: "›";
+  font-size: 17px;
+  font-weight: 700;
+  transform: translateX(1px);
+}
+
+.sidebar-top .sidebar-toggle-btn:hover,
+.sidebar-expand-btn:hover {
+  background: linear-gradient(160deg, #ffffff 8%, #e7f0ff 100%) !important;
+  border-color: rgba(102, 139, 188, 0.64) !important;
+  color: #0f5fd8 !important;
+  box-shadow:
+    0 10px 22px rgba(21, 57, 98, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.96) !important;
+  transform: translateY(-1px);
+  filter: none;
+}
+
+.sidebar-top .sidebar-toggle-btn:active,
+.sidebar-expand-btn:active {
+  transform: scale(0.97);
+  box-shadow:
+    0 6px 14px rgba(21, 57, 98, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+.sidebar-top .sidebar-toggle-btn:focus-visible,
+.sidebar-expand-btn:focus-visible {
+  outline: 2px solid rgba(15, 95, 216, 0.36);
+  outline-offset: 2px;
+}
+
+.layout.sidebar-collapsed {
+  --sidebar-width: 0px;
+}
+
+.layout.sidebar-collapsed .sidebar {
+  padding: 0;
+  border-right-color: transparent;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.layout.sidebar-collapsed .sidebar-expand-btn {
+  display: inline-flex;
+  opacity: 1;
+}
+
 
 .brand h1 {
   margin: 0;
@@ -105,6 +212,10 @@ body.modal-open {
   align-items: center;
   gap: 10px;
   margin-bottom: 14px;
+}
+
+.panel-head-right {
+  justify-content: flex-end;
 }
 
 .panel h2 {
@@ -258,6 +369,53 @@ body.modal-open {
 .copy-toast.show {
   opacity: 1;
   transform: translateY(0);
+}
+
+.app-toast {
+  position: fixed;
+  right: 22px;
+  top: 16px;
+  z-index: 13100;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  padding: 10px 13px;
+  border-radius: 10px;
+  color: #f8fbff;
+  border: 1px solid transparent;
+  background: rgba(19, 51, 90, 0.96);
+  box-shadow: 0 14px 24px rgba(8, 24, 45, 0.22);
+  font-size: 13px;
+  line-height: 1.45;
+  max-width: min(460px, 84vw);
+  white-space: normal;
+  word-break: break-word;
+}
+
+.app-toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.app-toast.info {
+  border-color: rgba(155, 192, 236, 0.52);
+  background: rgba(19, 51, 90, 0.96);
+}
+
+.app-toast.success {
+  border-color: rgba(113, 195, 137, 0.56);
+  background: rgba(19, 92, 52, 0.95);
+}
+
+.app-toast.warning {
+  border-color: rgba(247, 181, 92, 0.58);
+  background: rgba(120, 78, 17, 0.96);
+}
+
+.app-toast.error {
+  border-color: rgba(232, 140, 132, 0.6);
+  background: rgba(124, 43, 36, 0.96);
 }
 
 .card-head {
@@ -815,6 +973,10 @@ td .btn {
   padding: 10px;
   font-size: 12px;
   line-height: 1.44;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  tab-size: 2;
 }
 
 .log-view.compact {
@@ -1225,7 +1387,7 @@ td .btn {
 }
 
 .repair-hero p {
-  margin: 8px 0 0;
+  margin: 0;
   color: #4c5e73;
   font-size: 13px;
 }
@@ -1390,3 +1552,5 @@ td .btn {
     grid-template-columns: 1fr;
   }
 }
+
+

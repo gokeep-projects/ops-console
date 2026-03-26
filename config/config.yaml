@@ -84,13 +84,6 @@ log_analysis:
             - Application
             - Security
           description: Windows 事件日志（System/Application/Security）
-        - name: example-api
-          type: app-log
-          enabled: true
-          log_files:
-            - logs/example-api/info.log
-            - logs/example-api/error.log
-          description: 应用日志
 repair:
     script_root: scripts
     scripts: []
