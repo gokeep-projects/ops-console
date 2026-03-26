@@ -1,0 +1,337 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ .Title }}</title>
+  <link rel="stylesheet" href="/static/app.css?v=20260326-38" />
+</head>
+<body class="booting">
+  <div id="bootOverlay" class="boot-overlay">
+    <div class="boot-card">
+      <h2>运维工具初始化中</h2>
+      <p id="bootText">准备加载...</p>
+      <div class="boot-progress">
+        <div id="bootBar" class="boot-bar"></div>
+      </div>
+      <p id="bootPercent" class="boot-percent">0%</p>
+    </div>
+  </div>
+
+  <div class="app-bg"></div>
+  <div id="mainLayout" class="layout">
+    <aside class="sidebar">
+      <div class="brand">
+        <h1>运维工具</h1>
+        <p>现场排障工作台</p>
+      </div>
+      <button class="menu active" data-section="monitor">系统监控</button>
+      <button class="menu" data-section="logs">日志分析</button>
+      <button class="menu" data-section="repair">修复工具</button>
+      <button class="menu" data-section="backup">数据备份</button>
+    </aside>
+
+    <main class="content">
+      <section id="monitor" class="panel visible">
+        <div class="panel-head">
+          <h2>系统监控</h2>
+          <div class="ops">
+            <button id="monitorRefreshBtn" class="btn">实时状态下载</button>
+            <button id="monitorToggleBtn" class="btn danger">停止监控</button>
+          </div>
+        </div>
+
+        <div class="grid cards-5 monitor-kpi-grid">
+          <article class="card metric-card cpu">
+            <div class="kpi-head">
+              <h3>CPU</h3>
+              <span class="kpi-tag">实时</span>
+            </div>
+            <p id="cpuUsage" class="metric">-</p>
+            <small id="cpuCore" class="metric-sub">-</small>
+            <div class="meter"><span id="cpuBar"></span></div>
+            <div class="trend-row">
+              <div
+                id="trendMiniCpu"
+                class="mini-trend trend-open-target"
+                data-trend-key="cpu"
+                data-hint="点击放大"
+                role="button"
+                tabindex="0"
+                title="点击放大查看 24 小时趋势"
+              ></div>
+            </div>
+            <small id="trendInfoCpu" class="trend-meta">-</small>
+          </article>
+
+          <article class="card metric-card memory">
+            <div class="kpi-head">
+              <h3>内存</h3>
+              <span class="kpi-tag">实时</span>
+            </div>
+            <p id="memUsage" class="metric">-</p>
+            <small id="memDetail" class="metric-sub">-</small>
+            <div class="meter"><span id="memBar"></span></div>
+            <div class="trend-row">
+              <div
+                id="trendMiniMemory"
+                class="mini-trend trend-open-target"
+                data-trend-key="memory"
+                data-hint="点击放大"
+                role="button"
+                tabindex="0"
+                title="点击放大查看 24 小时趋势"
+              ></div>
+            </div>
+            <small id="trendInfoMemory" class="trend-meta">-</small>
+          </article>
+
+          <article class="card metric-card network">
+            <div class="kpi-head">
+              <h3>网络流量</h3>
+              <span class="kpi-tag">实时</span>
+            </div>
+            <p id="netTraffic" class="metric">-</p>
+            <small id="netPackets" class="metric-sub">-</small>
+            <div class="trend-row">
+              <div
+                id="trendMiniNetwork"
+                class="mini-trend trend-open-target"
+                data-trend-key="network"
+                data-hint="点击放大"
+                role="button"
+                tabindex="0"
+                title="点击放大查看 24 小时趋势"
+              ></div>
+            </div>
+            <small id="trendInfoNetwork" class="trend-meta">-</small>
+          </article>
+
+          <article class="card metric-card process">
+            <div class="kpi-head">
+              <h3>总进程数</h3>
+              <span class="kpi-tag">全局</span>
+            </div>
+            <p id="processCount" class="metric">-</p>
+            <small id="osInfo" class="metric-sub">-</small>
+            <div class="trend-row">
+              <div
+                id="trendMiniProcess"
+                class="mini-trend trend-open-target"
+                data-trend-key="process"
+                data-hint="点击放大"
+                role="button"
+                tabindex="0"
+                title="点击放大查看 24 小时趋势"
+              ></div>
+            </div>
+            <small id="trendInfoProcess" class="trend-meta">-</small>
+          </article>
+
+          <article class="card metric-card diskio">
+            <div class="kpi-head">
+              <h3>磁盘 IO</h3>
+              <span class="kpi-tag">实时</span>
+            </div>
+            <p id="diskIoFlow" class="metric">-</p>
+            <small id="diskIoOps" class="metric-sub">-</small>
+            <div class="trend-row">
+              <div
+                id="trendMiniDiskIO"
+                class="mini-trend trend-open-target"
+                data-trend-key="diskio"
+                data-hint="点击放大"
+                role="button"
+                tabindex="0"
+                title="点击放大查看 24 小时趋势"
+              ></div>
+            </div>
+            <small id="trendInfoDiskIO" class="trend-meta">-</small>
+          </article>
+        </div>
+
+        <div class="grid cards-2">
+          <article class="card">
+            <div class="card-head">
+              <h3>磁盘状态</h3>
+              <div class="ops">
+                <small id="diskIoSummary">-</small>
+                <button id="openDiskMetaModalBtn" class="btn sm" type="button">硬件汇总</button>
+              </div>
+            </div>
+            <div id="diskList" class="table"></div>
+          </article>
+
+          <article class="card">
+            <div class="card-head">
+              <h3>监听端口</h3>
+              <button id="openPortModalBtn" class="btn sm">查看详情</button>
+            </div>
+            <div id="portList" class="table"></div>
+          </article>
+        </div>
+
+        <div class="grid cards-2">
+          <article class="card service-status-card">
+            <div class="card-head">
+              <h3>应用 / 数据库 / 中间件 / 协议状态</h3>
+            </div>
+            <div id="serviceList" class="table"></div>
+          </article>
+
+          <article class="card process-top-card">
+            <div class="card-head">
+              <h3>进程排行 / JVM</h3>
+              <div class="ops">
+                <input id="processSearch" class="input" placeholder="搜索进程名 / 路径 / PID" />
+              </div>
+            </div>
+            <div id="topProcessList" class="table"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="logs" class="panel">
+        <div class="panel-head">
+          <h2>日志分析</h2>
+          <div class="ops">
+            <input id="logSearchApp" class="input sm" placeholder="搜索应用" />
+          </div>
+        </div>
+
+        <div id="appCards" class="app-cards"></div>
+
+        <div class="card">
+          <div class="row">
+            <input id="logKeyword" class="input" placeholder="关键字（全文检索）" />
+            <select id="logLevel" class="input">
+              <option value="all">全部</option>
+              <option value="info">信息</option>
+              <option value="error">错误</option>
+            </select>
+            <select id="logRule" class="input">
+              <option value="">常见问题规则</option>
+            </select>
+            <input id="logLimit" class="input sm" value="300" />
+            <button id="logQueryBtn" class="btn">查询</button>
+            <button id="logErrorBtn" class="btn">仅错误</button>
+            <button id="logExportBtn" class="btn">导出</button>
+          </div>
+          <p id="logCurrentApp" class="hint">当前应用：</p>
+          <div id="logFileSelector" class="selector"></div>
+          <div id="logResult" class="log-view"></div>
+        </div>
+      </section>
+
+      <section id="repair" class="panel repair-panel">
+        <div class="repair-hero">
+          <div>
+            <h2>修复工具执行台</h2>
+            <p>上传脚本、定义参数并执行，执行日志与历史记录集中展示。</p>
+          </div>
+          <span class="repair-badge">脚本执行</span>
+        </div>
+
+        <div class="repair-grid">
+          <article class="card repair-card upload-card">
+            <div class="repair-card-head">
+              <h3>上传脚本</h3>
+              <small>支持 ps1 / sh / bat / cmd</small>
+            </div>
+            <form id="uploadScriptForm" class="repair-form">
+              <label class="field">
+                <span>脚本文件</span>
+                <input type="file" name="file" class="input" required />
+              </label>
+              <label class="field">
+                <span>脚本名称</span>
+                <input name="name" class="input" placeholder="例如：修复 nginx 配置" />
+              </label>
+              <label class="field">
+                <span>运行 Shell</span>
+                <input name="shell" class="input" placeholder="powershell / sh / cmd" />
+              </label>
+              <label class="field">
+                <span>默认参数</span>
+                <input name="parameters" class="input" placeholder="例如：-env prod,-force true" />
+              </label>
+              <label class="field field-full">
+                <span>脚本描述</span>
+                <input name="description" class="input" placeholder="记录用途、风险和适用场景" />
+              </label>
+              <button class="btn repair-submit" type="submit">上传脚本</button>
+            </form>
+          </article>
+
+          <article class="card repair-card run-card">
+            <div class="repair-card-head">
+              <h3>执行脚本</h3>
+              <small>实时输出 / 可追溯</small>
+            </div>
+            <div class="run-toolbar">
+              <select id="scriptName" class="input"></select>
+              <input id="scriptArgs" class="input" placeholder="执行参数，例如：-host 127.0.0.1 -mode safe" />
+              <button id="runScriptBtn" class="btn">执行</button>
+            </div>
+            <pre id="scriptOutput" class="log-view compact repair-output"></pre>
+          </article>
+        </div>
+
+        <div class="repair-bottom-grid">
+          <article class="card repair-card library-card">
+            <div class="repair-card-head">
+              <h3>脚本库</h3>
+              <small>已注册脚本</small>
+            </div>
+            <div id="scriptLibrary" class="script-library"></div>
+          </article>
+
+          <article class="card repair-card">
+            <div class="repair-card-head">
+              <h3>执行历史</h3>
+              <small>最近运行记录</small>
+            </div>
+            <div id="scriptRunHistory" class="table"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="backup" class="panel">
+        <div class="panel-head">
+          <h2>数据备份</h2>
+        </div>
+        <article class="card">
+          <div class="row">
+            <select id="backupType" class="input">
+              <option value="files">重要文件备份</option>
+              <option value="database">数据库备份</option>
+              <option value="es">ES 备份</option>
+            </select>
+            <input id="backupName" class="input" placeholder="备份名称（可选）" />
+            <input id="backupTarget" class="input" placeholder="备份目录（可选，支持修改存储路径）" />
+            <button id="runBackupBtn" class="btn">开始备份</button>
+          </div>
+          <p class="hint">数据库和 ES 备份命令来源于配置文件 `backup.databases / backup.es`。</p>
+        </article>
+        <article class="card">
+          <h3>备份文件列表</h3>
+          <div id="backupList" class="table"></div>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <div id="modalMask" class="modal-mask hidden">
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="modalTitle">详情</h3>
+        <button id="modalCloseBtn" class="btn sm">关闭</button>
+      </div>
+      <div id="modalBody" class="modal-body"></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js?v=20260326-38"></script>
+</body>
+</html>
+

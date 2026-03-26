@@ -1,0 +1,12 @@
+dist/
+data/
+backups/
+logs/
+*.db
+*.zip
+
+.gocache/
+.gomodcache/
+dist.zip
+.idea
+*.iml
