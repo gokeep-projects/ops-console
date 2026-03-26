@@ -116,21 +116,59 @@ function bindSidebarToggle() {
   const sidebarToggleBtn = document.getElementById("sidebarToggleBtn");
   const sidebarExpandBtn = document.getElementById("sidebarExpandBtn");
   if (!layout || !sidebarToggleBtn || !sidebarExpandBtn) return;
+  const sidebarToggleText = sidebarToggleBtn.querySelector(".sidebar-toggle-text");
+  const sidebarMedia = window.matchMedia("(max-width: 1080px)");
+  const storageKey = "ops.sidebar.collapsed";
 
-  const setCollapsed = (collapsed) => {
-    const isCollapsed = !!collapsed;
+  const readCollapsed = () => {
+    try {
+      return window.localStorage.getItem(storageKey) === "1";
+    } catch (_) {
+      return false;
+    }
+  };
+
+  const writeCollapsed = (collapsed) => {
+    try {
+      window.localStorage.setItem(storageKey, collapsed ? "1" : "0");
+    } catch (_) {
+      // ignore storage failures
+    }
+  };
+
+  const setCollapsed = (collapsed, options = {}) => {
+    const isCollapsed = sidebarMedia.matches ? false : !!collapsed;
+    const toggleLabel = isCollapsed ? "展开系统菜单" : "收起系统菜单";
     layout.classList.toggle("sidebar-collapsed", isCollapsed);
-    sidebarToggleBtn.textContent = isCollapsed ? "展开" : "收起";
-    sidebarToggleBtn.title = isCollapsed ? "展开系统菜单" : "收起系统菜单";
-    sidebarToggleBtn.setAttribute("aria-label", isCollapsed ? "展开系统菜单" : "收起系统菜单");
+    sidebarToggleBtn.dataset.collapsed = String(isCollapsed);
+    sidebarExpandBtn.dataset.collapsed = String(isCollapsed);
+    sidebarToggleBtn.title = toggleLabel;
+    sidebarToggleBtn.setAttribute("aria-label", toggleLabel);
     sidebarToggleBtn.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
-    sidebarExpandBtn.textContent = "展开";
     sidebarExpandBtn.title = "展开系统菜单";
     sidebarExpandBtn.setAttribute("aria-label", "展开系统菜单");
     sidebarExpandBtn.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
+    if (sidebarToggleText) {
+      sidebarToggleText.textContent = toggleLabel;
+    }
+    if (options.persist !== false) {
+      writeCollapsed(isCollapsed);
+    }
   };
 
-  setCollapsed(false);
+  setCollapsed(readCollapsed(), { persist: false });
+
+  const syncResponsiveState = () => {
+    if (sidebarMedia.matches) {
+      setCollapsed(false, { persist: false });
+    }
+  };
+
+  if (typeof sidebarMedia.addEventListener === "function") {
+    sidebarMedia.addEventListener("change", syncResponsiveState);
+  } else if (typeof sidebarMedia.addListener === "function") {
+    sidebarMedia.addListener(syncResponsiveState);
+  }
 
   sidebarToggleBtn.addEventListener("click", () => {
     const collapsed = !layout.classList.contains("sidebar-collapsed");
@@ -226,10 +264,20 @@ function finishBoot(doneText = "初始化完成") {
 
 function bindMenu() {
   const buttons = document.querySelectorAll(".menu");
+  const activate = (targetBtn) => {
+    buttons.forEach((btn) => {
+      const active = btn === targetBtn;
+      btn.classList.toggle("active", active);
+      btn.setAttribute("aria-current", active ? "page" : "false");
+    });
+  };
+
+  const initial = Array.from(buttons).find((btn) => btn.classList.contains("active"));
+  if (initial) activate(initial);
+
   buttons.forEach((btn) => {
     btn.addEventListener("click", () => {
-      buttons.forEach((x) => x.classList.remove("active"));
-      btn.classList.add("active");
+      activate(btn);
       switchSection(btn.dataset.section);
     });
   });
@@ -2678,4 +2726,3 @@ function escapeHTML(raw) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 }
-

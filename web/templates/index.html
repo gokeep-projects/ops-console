@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{{ .Title }}</title>
-  <link rel="stylesheet" href="/static/app.css?v=20260326-57" />
+  <link rel="stylesheet" href="/static/app.css?v=20260327-61" />
 </head>
 <body class="booting">
   <div id="bootOverlay" class="boot-overlay">
@@ -22,14 +22,72 @@
   <div id="mainLayout" class="layout">
     <aside class="sidebar">
       <div class="sidebar-top">
-        <button id="sidebarToggleBtn" class="btn sm sidebar-toggle-btn" type="button" title="收起系统菜单">收起</button>
+        <button
+          id="sidebarToggleBtn"
+          class="btn sm sidebar-toggle-btn"
+          type="button"
+          title="收起系统菜单"
+          aria-label="收起系统菜单"
+          aria-expanded="true"
+          data-collapsed="false"
+        >
+          <span class="sidebar-toggle-icon" aria-hidden="true"></span>
+          <span class="sr-only sidebar-toggle-text">收起系统菜单</span>
+        </button>
+        <button
+          id="sidebarExpandBtn"
+          class="btn sm sidebar-expand-btn"
+          type="button"
+          title="展开系统菜单"
+          aria-label="展开系统菜单"
+          aria-expanded="false"
+          data-collapsed="true"
+        >
+          <span class="sidebar-toggle-icon" aria-hidden="true"></span>
+          <span class="sr-only sidebar-expand-text">展开</span>
+        </button>
       </div>
-      <button class="menu active" data-section="monitor">系统监控</button>
-      <button class="menu" data-section="logs">日志分析</button>
-      <button class="menu" data-section="repair">修复工具</button>
-      <button class="menu" data-section="backup">数据备份</button>
+      <button class="menu active" type="button" data-section="monitor" title="系统监控" aria-label="系统监控">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none">
+            <path d="M3 12.5h10" />
+            <path d="M4.5 10 6.8 7.7l2 1.8L12 5.8" />
+          </svg>
+        </span>
+        <span class="menu-label">系统监控</span>
+      </button>
+      <button class="menu" type="button" data-section="logs" title="日志分析" aria-label="日志分析">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none">
+            <path d="M4 3.5h8a1 1 0 0 1 1 1v7.5l-2-1.4-2 1.4-2-1.4-2 1.4-2-1.4V4.5a1 1 0 0 1 1-1Z" />
+            <path d="M5.5 6.25h5" />
+            <path d="M5.5 8.25h4" />
+          </svg>
+        </span>
+        <span class="menu-label">日志分析</span>
+      </button>
+      <button class="menu" type="button" data-section="repair" title="修复工具" aria-label="修复工具">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none">
+            <path d="m9.2 3.5 3.3 3.3" />
+            <path d="M10.1 2.6a2.2 2.2 0 0 1 2.8 2.8l-5.7 5.7-2.9.5.5-2.9 5.3-5.3Z" />
+            <path d="m8.3 4.4 3.3 3.3" />
+          </svg>
+        </span>
+        <span class="menu-label">修复工具</span>
+      </button>
+      <button class="menu" type="button" data-section="backup" title="数据备份" aria-label="数据备份">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none">
+            <path d="M3.5 4.5h9v7h-9z" />
+            <path d="M5 4.5V3.8a.8.8 0 0 1 .8-.8h4.4a.8.8 0 0 1 .8.8v.7" />
+            <path d="M5.5 8h5" />
+            <path d="M8 8v2.5" />
+          </svg>
+        </span>
+        <span class="menu-label">数据备份</span>
+      </button>
     </aside>
-    <button id="sidebarExpandBtn" class="btn sm sidebar-expand-btn" type="button" title="展开系统菜单">展开</button>
 
     <main class="content">
       <section id="monitor" class="panel visible">
@@ -334,7 +392,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=20260326-63"></script>
+  <script src="/static/app.js?v=20260327-64"></script>
 </body>
 </html>
-
