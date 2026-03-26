@@ -1,135 +1,150 @@
-﻿core:
-  web:
-    listen: 127.0.0.1:18082
-  sqlite:
-    path: data/ops-tool.db
-    password: ops-fixed-password-2026
-  timezone: Asia/Shanghai
+core:
+    web:
+        listen: 127.0.0.1:18082
+    sqlite:
+        path: data/ops-tool.db
+        password: ops-fixed-password-2026
+    timezone: Asia/Shanghai
 monitor:
-  refresh_seconds: 5
-  enable_items:
-    - cpu
-    - memory
-    - disk
-    - threads
-    - os
-    - network
-    - ports
-    - traffic
-    - applications
-    - databases
-    - es
-    - nginx
-    - keepalive
-    - jvm
-    - snmp
-    - nmap
-  default_all: true
-  snmp:
-    enabled: true
-    timeout_seconds: 1
-    retries: 0
-    targets:
-      - name: local-snmp
-        host: 127.0.0.1
-        port: 161
-        version: v2c
-        community: public
-        oids:
-          - name: sysName
-            oid: 1.3.6.1.2.1.1.5.0
-          - name: sysUpTime
-            oid: 1.3.6.1.2.1.1.3.0
-          - name: sysDescr
-            oid: 1.3.6.1.2.1.1.1.0
-  nmap:
-    enabled: true
-    timeout_seconds: 6
-    nmap_binary: nmap
-    top_ports: 50
-    arguments:
-      - -sT
-      - --open
-    targets:
-      - 127.0.0.1
-applications:
-  - name: example-api
-    type: go-service
-    enabled: true
-    process_names:
-      - example-api
-    ports:
-      - 8080
-    health_url: http://127.0.0.1:8080/health
-    health_cmd: ""
-    log_files:
-      - logs/example-api/info.log
-      - logs/example-api/error.log
-log_analysis:
-  enable_realtime: true
-  max_lines: 2000
-  rules:
-    - name: timeout
-      pattern: (?i)timeout|deadline exceeded
-      description: 网络或依赖超时
-    - name: db-conn
-      pattern: (?i)too many connections|connection refused|sql
-      description: 数据库连接或SQL错误
-repair:
-  script_root: scripts
-  scripts: []
-backup:
-  storage_path: backups
-  files:
-    - config/config.yaml
-    - logs
-  databases:
-    - name: mysql-default
-      command: echo 'replace with mysqldump command'
-  es:
-    - name: es-default
-      command: echo 'replace with elasticsearch snapshot command'
-databases:
-  - name: mysql
-    host: 127.0.0.1
-    port: 3306
-    process_names:
-      - mysqld
-      - mysql
-middleware:
-  checks:
-    - name: elasticsearch
-      type: http
-      url: http://127.0.0.1:9200
-      host: ""
-      port: 0
-      cmd: ""
-      process_names:
-        - elasticsearch
-        - java
-    - name: nginx
-      type: http
-      url: http://127.0.0.1/nginx_status
-      host: ""
-      port: 0
-      cmd: ""
-      process_names:
+    refresh_seconds: 5
+    enable_items:
+        - cpu
+        - memory
+        - disk
+        - threads
+        - os
+        - network
+        - ports
+        - traffic
+        - applications
+        - databases
+        - es
         - nginx
-    - name: keepalived
-      type: port
-      url: ""
-      host: 127.0.0.1
-      port: 112
-      cmd: ""
+        - keepalive
+        - jvm
+        - snmp
+        - nmap
+    default_all: true
+    snmp:
+        enabled: true
+        timeout_seconds: 1
+        retries: 0
+        targets:
+            - name: local-snmp
+              host: 127.0.0.1
+              port: 161
+              version: v2c
+              community: public
+              oids:
+                - name: sysName
+                  oid: 1.3.6.1.2.1.1.5.0
+                - name: sysUpTime
+                  oid: 1.3.6.1.2.1.1.3.0
+                - name: sysDescr
+                  oid: 1.3.6.1.2.1.1.1.0
+    nmap:
+        enabled: true
+        timeout_seconds: 6
+        nmap_binary: nmap
+        top_ports: 50
+        arguments:
+            - -sT
+            - --open
+        targets:
+            - 127.0.0.1
+applications:
+    - name: example-api
+      type: go-service
+      enabled: true
       process_names:
-        - keepalived
+        - example-api
+      ports:
+        - 8080
+      health_url: http://127.0.0.1:8080/health
+      health_cmd: ""
+      log_files:
+        - logs/example-api/info.log
+        - logs/example-api/error.log
+log_analysis:
+    enable_realtime: true
+    max_lines: 2000
+    rules:
+        - name: timeout
+          pattern: (?i)timeout|deadline exceeded
+          description: 网络或依赖超时
+        - name: db-conn
+          pattern: (?i)too many connections|connection refused|sql
+          description: 数据库连接或SQL错误
+    sources:
+        - name: 系统日志
+          type: windows-eventlog
+          enabled: true
+          log_files:
+            - System
+            - Application
+            - Security
+          description: Windows 事件日志（System/Application/Security）
+        - name: example-api
+          type: app-log
+          enabled: true
+          log_files:
+            - logs/example-api/info.log
+            - logs/example-api/error.log
+          description: 应用日志
+repair:
+    script_root: scripts
+    scripts: []
+backup:
+    storage_path: backups
+    files:
+        - config/config.yaml
+        - logs
+    databases:
+        - name: mysql-default
+          command: echo 'replace with mysqldump command'
+    es:
+        - name: es-default
+          command: echo 'replace with elasticsearch snapshot command'
+databases:
+    - name: mysql
+      host: 127.0.0.1
+      port: 3306
+      process_names:
+        - mysqld
+        - mysql
+middleware:
+    checks:
+        - name: elasticsearch
+          type: http
+          url: http://127.0.0.1:9200
+          host: ""
+          port: 0
+          cmd: ""
+          process_names:
+            - elasticsearch
+            - java
+        - name: nginx
+          type: http
+          url: http://127.0.0.1/nginx_status
+          host: ""
+          port: 0
+          cmd: ""
+          process_names:
+            - nginx
+        - name: keepalived
+          type: port
+          url: ""
+          host: 127.0.0.1
+          port: 112
+          cmd: ""
+          process_names:
+            - keepalived
 extensions:
-  system_monitor:
-    show_top_process_count: 10
-  log_analysis:
-    default_limit: 300
-  repair:
-    max_concurrency: 2
-  backup:
-    keep_latest_count: 30
-
+    backup:
+        keep_latest_count: 30
+    log_analysis:
+        default_limit: 300
+    repair:
+        max_concurrency: 2
+    system_monitor:
+        show_top_process_count: 10

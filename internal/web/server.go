@@ -47,12 +47,20 @@ type Server struct {
 	trendBuffer   []store.MonitorTrendSample
 	trendStopChan chan struct{}
 	trendStopOnce sync.Once
+
+	monitorMu        sync.RWMutex
+	monitorCollectMu sync.Mutex
+	monitorSnapshot  monitor.Snapshot
+	monitorReady     bool
+	monitorStopChan  chan struct{}
+	monitorStopOnce  sync.Once
 }
 
 const (
 	trendFlushInterval   = 30 * time.Second
 	trendFlushTriggerLen = 12
 	trendBufferMax       = 4096
+	monitorMinInterval   = 2 * time.Second
 )
 
 func NewServer(baseDir, configPath string, cfg *config.Config, st *store.Store) (*Server, error) {
@@ -82,6 +90,7 @@ func (s *Server) Start(addr string) error {
 		Handler: s.router,
 	}
 	s.startTrendFlusher()
+	s.startMonitorCollector()
 	err := s.httpServer.ListenAndServe()
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
@@ -90,6 +99,7 @@ func (s *Server) Start(addr string) error {
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
+	s.stopMonitorCollector()
 	s.stopTrendFlusher()
 	flushErr := s.flushTrendBuffer()
 	if s.httpServer == nil {
@@ -112,7 +122,7 @@ func (s *Server) routes() *chi.Mux {
 	r.Use(middleware.Logger)
 
 	staticDir := filepath.Join(s.baseDir, "web", "static")
-	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
+	r.Handle("/static/*", noCache(http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir)))))
 
 	r.Get("/", s.handleIndex)
 	r.Get("/api/config", s.handleGetConfig)
@@ -124,6 +134,8 @@ func (s *Server) routes() *chi.Mux {
 	r.Post("/api/processes/{pid}/kill", s.handleProcessKill)
 
 	r.Get("/api/logs/apps", s.handleLogApps)
+	r.Post("/api/logs/apps", s.handleLogAppCreate)
+	r.Delete("/api/logs/apps/{app}", s.handleLogAppDelete)
 	r.Get("/api/logs/{app}", s.handleLogSearch)
 	r.Post("/api/logs/{app}/export", s.handleLogExport)
 
@@ -147,6 +159,9 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		"Config": s.cfg,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
 	if err := s.tpl.Execute(w, data); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 	}
@@ -189,14 +204,13 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleMonitor(w http.ResponseWriter, r *http.Request) {
-	s.mu.RLock()
-	cfg := *s.cfg
-	s.mu.RUnlock()
-	res := monitor.Gather(&cfg)
-	s.appendTrendSample(buildMonitorTrendSample(res))
-	if s.trendBufferLen() >= trendFlushTriggerLen {
-		if err := s.flushTrendBuffer(); err != nil {
-			log.Printf("flush trend buffer failed: %v", err)
+	res, ok := s.getMonitorSnapshot()
+	if !ok {
+		s.collectMonitorSnapshot()
+		res, ok = s.getMonitorSnapshot()
+		if !ok {
+			writeErr(w, http.StatusServiceUnavailable, fmt.Errorf("鐩戞帶鏁版嵁鍒濆鍖栦腑锛岃绋嶅悗閲嶈瘯"))
+			return
 		}
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -273,35 +287,139 @@ func (s *Server) handleProcessKill(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogApps(w http.ResponseWriter, r *http.Request) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	type appResp struct {
-		Name     string   `json:"name"`
-		Type     string   `json:"type"`
-		Enabled  bool     `json:"enabled"`
-		LogFiles []string `json:"log_files"`
+	s.mu.Lock()
+	changed := config.EnsureLogSources(s.cfg)
+	if changed {
+		if err := config.Save(s.configPath, s.cfg); err != nil {
+			s.mu.Unlock()
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
 	}
-	out := make([]appResp, 0, len(s.cfg.Applications))
-	for _, app := range s.cfg.Applications {
-		app.LogFiles = s.resolvePaths(app.LogFiles)
+	type appResp struct {
+		Name        string   `json:"name"`
+		Type        string   `json:"type"`
+		Enabled     bool     `json:"enabled"`
+		LogFiles    []string `json:"log_files"`
+		Description string   `json:"description"`
+	}
+	out := make([]appResp, 0, len(s.cfg.LogAnalysis.Sources))
+	for _, src := range s.cfg.LogAnalysis.Sources {
+		files := append([]string(nil), src.LogFiles...)
+		if !strings.EqualFold(src.Type, "windows-eventlog") {
+			files = s.resolvePaths(files)
+		}
 		out = append(out, appResp{
-			Name:     app.Name,
-			Type:     app.Type,
-			Enabled:  app.Enabled,
-			LogFiles: app.LogFiles,
+			Name:        src.Name,
+			Type:        src.Type,
+			Enabled:     src.Enabled,
+			LogFiles:    files,
+			Description: src.Description,
 		})
 	}
+	rules := append([]config.LogRule(nil), s.cfg.LogAnalysis.Rules...)
+	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"apps":  out,
-		"rules": s.cfg.LogAnalysis.Rules,
+		"rules": rules,
 	})
+}
+
+func (s *Server) handleLogAppCreate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name        string   `json:"name"`
+		Type        string   `json:"type"`
+		Description string   `json:"description"`
+		LogFiles    []string `json:"log_files"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	req.Type = strings.TrimSpace(req.Type)
+	req.Description = strings.TrimSpace(req.Description)
+	if req.Name == "" {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+	if req.Type == "" {
+		req.Type = "custom-log"
+	}
+	cleanFiles := make([]string, 0, len(req.LogFiles))
+	seen := make(map[string]struct{}, len(req.LogFiles))
+	for _, item := range req.LogFiles {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		key := strings.ToLower(item)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		cleanFiles = append(cleanFiles, item)
+	}
+	if len(cleanFiles) == 0 {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("log_files is required"))
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, src := range s.cfg.LogAnalysis.Sources {
+		if strings.EqualFold(strings.TrimSpace(src.Name), req.Name) {
+			writeErr(w, http.StatusConflict, fmt.Errorf("log source already exists: %s", req.Name))
+			return
+		}
+	}
+	s.cfg.LogAnalysis.Sources = append(s.cfg.LogAnalysis.Sources, config.LogSource{
+		Name:        req.Name,
+		Type:        req.Type,
+		Enabled:     true,
+		LogFiles:    cleanFiles,
+		Description: req.Description,
+	})
+	if err := config.Save(s.configPath, s.cfg); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleLogAppDelete(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(chi.URLParam(r, "app"))
+	if name == "" {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	idx := -1
+	for i, src := range s.cfg.LogAnalysis.Sources {
+		if strings.EqualFold(strings.TrimSpace(src.Name), name) {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		writeErr(w, http.StatusNotFound, fmt.Errorf("log source not found: %s", name))
+		return
+	}
+	s.cfg.LogAnalysis.Sources = append(s.cfg.LogAnalysis.Sources[:idx], s.cfg.LogAnalysis.Sources[idx+1:]...)
+	if err := config.Save(s.configPath, s.cfg); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (s *Server) handleLogSearch(w http.ResponseWriter, r *http.Request) {
 	appName := chi.URLParam(r, "app")
 
 	s.mu.RLock()
-	app, ok := s.cfg.FindApp(appName)
+	src, ok := s.cfg.FindLogSource(appName)
 	rules := s.cfg.LogAnalysis.Rules
 	maxLines := s.cfg.LogAnalysis.MaxLines
 	s.mu.RUnlock()
@@ -309,7 +427,15 @@ func (s *Server) handleLogSearch(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, fmt.Errorf("app not found: %s", appName))
 		return
 	}
-	app.LogFiles = s.resolvePaths(app.LogFiles)
+	app := config.Application{
+		Name:     src.Name,
+		Type:     src.Type,
+		Enabled:  src.Enabled,
+		LogFiles: append([]string(nil), src.LogFiles...),
+	}
+	if !strings.EqualFold(src.Type, "windows-eventlog") {
+		app.LogFiles = s.resolvePaths(app.LogFiles)
+	}
 
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 || limit > maxLines {
@@ -345,15 +471,23 @@ func (s *Server) handleLogExport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.RLock()
-	app, ok := s.cfg.FindApp(appName)
+	src, ok := s.cfg.FindLogSource(appName)
 	backupDir := s.cfg.Backup.StoragePath
 	s.mu.RUnlock()
 	if !ok {
 		writeErr(w, http.StatusNotFound, fmt.Errorf("app not found: %s", appName))
 		return
 	}
-	app.LogFiles = s.resolvePaths(app.LogFiles)
-	req.Files = s.resolvePaths(req.Files)
+	app := config.Application{
+		Name:     src.Name,
+		Type:     src.Type,
+		Enabled:  src.Enabled,
+		LogFiles: append([]string(nil), src.LogFiles...),
+	}
+	if !strings.EqualFold(src.Type, "windows-eventlog") {
+		app.LogFiles = s.resolvePaths(app.LogFiles)
+		req.Files = s.resolvePaths(req.Files)
+	}
 	backupDir = s.resolvePath(backupDir)
 
 	if err := os.MkdirAll(backupDir, 0o755); err != nil {
@@ -608,6 +742,85 @@ func buildMonitorTrendSample(snapshot monitor.Snapshot) store.MonitorTrendSample
 	}
 }
 
+func (s *Server) getMonitorSnapshot() (monitor.Snapshot, bool) {
+	s.monitorMu.RLock()
+	defer s.monitorMu.RUnlock()
+	if !s.monitorReady {
+		return monitor.Snapshot{}, false
+	}
+	return s.monitorSnapshot, true
+}
+
+func (s *Server) monitorInterval() time.Duration {
+	s.mu.RLock()
+	sec := s.cfg.Monitor.RefreshSeconds
+	s.mu.RUnlock()
+	if sec <= 0 {
+		sec = 5
+	}
+	d := time.Duration(sec) * time.Second
+	if d < monitorMinInterval {
+		d = monitorMinInterval
+	}
+	return d
+}
+
+func (s *Server) startMonitorCollector() {
+	s.monitorStopChan = make(chan struct{})
+	go func() {
+		s.collectMonitorSnapshot()
+		for {
+			timer := time.NewTimer(s.monitorInterval())
+			select {
+			case <-timer.C:
+				s.collectMonitorSnapshot()
+			case <-s.monitorStopChan:
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				return
+			}
+		}
+	}()
+}
+
+func (s *Server) stopMonitorCollector() {
+	s.monitorStopOnce.Do(func() {
+		if s.monitorStopChan != nil {
+			close(s.monitorStopChan)
+		}
+	})
+}
+
+func (s *Server) collectMonitorSnapshot() {
+	s.monitorCollectMu.Lock()
+	defer s.monitorCollectMu.Unlock()
+
+	s.mu.RLock()
+	cfg := *s.cfg
+	s.mu.RUnlock()
+
+	snapshot := monitor.Gather(&cfg)
+	if snapshot.Time.IsZero() {
+		snapshot.Time = time.Now()
+	}
+
+	s.monitorMu.Lock()
+	s.monitorSnapshot = snapshot
+	s.monitorReady = true
+	s.monitorMu.Unlock()
+
+	s.appendTrendSample(buildMonitorTrendSample(snapshot))
+	if s.trendBufferLen() >= trendFlushTriggerLen {
+		if err := s.flushTrendBuffer(); err != nil {
+			log.Printf("flush trend buffer failed: %v", err)
+		}
+	}
+}
+
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(code)
@@ -617,6 +830,15 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 func writeErr(w http.ResponseWriter, code int, err error) {
 	writeJSON(w, code, map[string]any{
 		"error": err.Error(),
+	})
+}
+
+func noCache(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
+		next.ServeHTTP(w, r)
 	})
 }
 

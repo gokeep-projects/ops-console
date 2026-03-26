@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{{ .Title }}</title>
-  <link rel="stylesheet" href="/static/app.css?v=20260326-38" />
+  <link rel="stylesheet" href="/static/app.css?v=20260326-44" />
 </head>
 <body class="booting">
   <div id="bootOverlay" class="boot-overlay">
@@ -40,6 +40,14 @@
             <button id="monitorToggleBtn" class="btn danger">停止监控</button>
           </div>
         </div>
+
+        <article class="card system-info-card">
+          <div class="card-head">
+            <h3>系统信息</h3>
+            <button id="openSystemInfoModalBtn" class="btn sm" type="button">查看系统详情</button>
+          </div>
+          <div id="systemInfoQuick" class="system-info-quick">-</div>
+        </article>
 
         <div class="grid cards-5 monitor-kpi-grid">
           <article class="card metric-card cpu">
@@ -165,7 +173,10 @@
           <article class="card">
             <div class="card-head">
               <h3>监听端口</h3>
-              <button id="openPortModalBtn" class="btn sm">查看详情</button>
+              <div class="ops">
+                <input id="portSearch" class="input" placeholder="搜索进程名 / 端口 / PID / 路径" />
+                <button id="openPortModalBtn" class="btn sm">查看详情</button>
+              </div>
             </div>
             <div id="portList" class="table"></div>
           </article>
@@ -195,6 +206,7 @@
         <div class="panel-head">
           <h2>日志分析</h2>
           <div class="ops">
+            <button id="logAddCardBtn" class="btn sm">添加日志卡片</button>
             <input id="logSearchApp" class="input sm" placeholder="搜索应用" />
           </div>
         </div>
@@ -331,7 +343,7 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=20260326-38"></script>
+  <script src="/static/app.js?v=20260326-50"></script>
 </body>
 </html>
 

@@ -27,6 +27,11 @@ const bootState = {
   done: 0,
 };
 
+let bootFinished = false;
+let bootRunning = false;
+let bootFallbackTimer = null;
+let copyToastTimer = null;
+
 const TREND_KEEP_MS = 24 * 60 * 60 * 1000;
 const TREND_MINI_MS = 60 * 60 * 1000;
 const TREND_MAX_RENDER_POINTS = 2400;
@@ -77,39 +82,85 @@ const TREND_SERIES = {
 
 document.addEventListener("DOMContentLoaded", () => {
   updateBoot("准备初始化界面...", 0);
-  bindMenu();
-  switchSection("monitor");
-  bindMonitorActions();
-  bindLogActions();
-  bindRepairActions();
-  bindBackupActions();
-  bindModal();
-  bootstrap();
+  bootFallbackTimer = setTimeout(() => {
+    if (bootFinished) return;
+    console.error("初始化超过 180 秒，准备自动重试");
+    bootState.done = 0;
+    updateBoot("初始化耗时较长，正在重试...", 0);
+    bootstrap();
+  }, 180000);
+
+  try {
+    bindMenu();
+    switchSection("monitor");
+    bindMonitorActions();
+    bindLogActions();
+    bindRepairActions();
+    bindBackupActions();
+    bindModal();
+    bootstrap();
+  } catch (err) {
+    console.error("页面初始化失败", err);
+    updateBoot("页面初始化失败，请刷新后重试", 0);
+  }
 });
 
 async function bootstrap() {
-  await runBootStep("加载配置", loadConfig);
-  await runBootStep("采集监控数据", refreshMonitor);
-  await runBootStep("加载趋势历史", loadTrendHistory);
-  await runBootStep("加载应用和日志规则", loadApps);
-  await runBootStep("加载脚本定义", loadScripts);
-  await runBootStep("加载脚本执行历史", loadScriptRuns);
-  await runBootStep("加载备份记录", loadBackups);
-  startMonitorLoop();
-  finishBoot();
+  if (bootFinished || bootRunning) return;
+  bootRunning = true;
+  try {
+    bootState.done = 0;
+    await runBootStep("加载配置", loadConfig, { required: true, retries: 1, timeout: 12000 });
+    await runBootStep("采集首批监控数据", () => refreshMonitor(true), { required: true, retries: 2, timeout: 30000 });
+    await runBootStep("加载趋势历史", loadTrendHistory, { required: true, retries: 1, timeout: 12000 });
+    await runBootStep("加载应用和日志规则", loadApps, { required: true, retries: 1, timeout: 10000 });
+    await runBootStep("加载脚本定义", loadScripts, { required: true, retries: 1, timeout: 10000 });
+    await runBootStep("加载脚本执行历史", loadScriptRuns, { required: true, retries: 1, timeout: 10000 });
+    await runBootStep("加载备份记录", loadBackups, { required: true, retries: 1, timeout: 10000 });
+    finishBoot();
+    startMonitorLoop();
+  } catch (err) {
+    console.error("bootstrap failed", err);
+    updateBoot("初始化失败，正在重试...", Math.floor((bootState.done / bootState.total) * 100));
+    setTimeout(() => {
+      if (!bootFinished) bootstrap();
+    }, 1500);
+  } finally {
+    bootRunning = false;
+  }
 }
 
-async function runBootStep(text, fn) {
+async function runBootStep(text, fn, options = {}) {
+  const required = options.required !== false;
+  const retries = Math.max(0, Number(options.retries || 0));
+  const timeout = Math.max(3000, Number(options.timeout || 15000));
+  let lastErr = null;
+
   updateBoot(`${text}...`, Math.floor((bootState.done / bootState.total) * 100));
-  try {
-    await withTimeout(fn(), 15000, `${text}超时`);
-  } catch (err) {
-    console.error(`初始化步骤失败: ${text}`, err);
-  } finally {
-    bootState.done += 1;
-    const percent = Math.floor((bootState.done / bootState.total) * 100);
-    updateBoot(`${text}完成`, percent);
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      await withTimeout(Promise.resolve().then(() => fn()), timeout, `${text}超时`);
+      lastErr = null;
+      break;
+    } catch (err) {
+      lastErr = err;
+      console.error(`初始化步骤失败: ${text}（第 ${attempt + 1} 次）`, err);
+      if (attempt < retries) {
+        updateBoot(`${text}失败，重试中(${attempt + 1}/${retries})...`, Math.floor((bootState.done / bootState.total) * 100));
+        await sleep(500);
+      }
+    }
   }
+
+  bootState.done += 1;
+  const percent = Math.floor((bootState.done / bootState.total) * 100);
+  if (lastErr) {
+    updateBoot(`${text}失败`, percent);
+    if (required) throw lastErr;
+    return false;
+  }
+  updateBoot(`${text}完成`, percent);
+  return true;
 }
 
 function updateBoot(text, percent) {
@@ -121,8 +172,14 @@ function updateBoot(text, percent) {
   if (bar) bar.style.width = `${percent}%`;
 }
 
-function finishBoot() {
-  updateBoot("初始化完成", 100);
+function finishBoot(doneText = "初始化完成") {
+  if (bootFinished) return;
+  bootFinished = true;
+  if (bootFallbackTimer) {
+    clearTimeout(bootFallbackTimer);
+    bootFallbackTimer = null;
+  }
+  updateBoot(doneText, 100);
   setTimeout(() => {
     document.body.classList.remove("booting");
     const overlay = document.getElementById("bootOverlay");
@@ -176,7 +233,31 @@ function bindMonitorActions() {
     openDiskMetaModal();
   });
 
+  const systemInfoBtn = document.getElementById("openSystemInfoModalBtn");
+  if (systemInfoBtn) {
+    systemInfoBtn.addEventListener("click", () => {
+      openSystemInfoModal();
+    });
+  }
+
+  const systemInfoBox = document.getElementById("systemInfoQuick");
+  if (systemInfoBox) {
+    systemInfoBox.addEventListener("click", async (event) => {
+      const card = event.target.closest(".system-info-item");
+      if (!card) return;
+      await copySystemInfoCard(card);
+    });
+    systemInfoBox.addEventListener("keydown", async (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const card = event.target.closest(".system-info-item");
+      if (!card) return;
+      event.preventDefault();
+      await copySystemInfoCard(card);
+    });
+  }
+
   document.getElementById("processSearch").addEventListener("input", renderProcessTable);
+  document.getElementById("portSearch").addEventListener("input", renderPortTable);
 
   document.querySelectorAll(".trend-open-target").forEach((target) => {
     const openByTarget = () => {
@@ -279,9 +360,16 @@ function buildRealtimeStatusText(data) {
   lines.push(
     [
       `主机 ${compact(data.os?.hostname)}`,
-      `系统 ${compact(data.os?.platform)}`,
-      `版本 ${compact(data.os?.version)}`,
+      `系统类型 ${compact(data.os?.os_type || data.os?.platform)}`,
+      `系统版本 ${compact(data.os?.version)}`,
+      `内核版本 ${compact(data.os?.kernel_version || "-")}`,
       `运行时长 ${formatDuration(data.os?.uptime)}`,
+    ].join(" | "),
+  );
+  lines.push(
+    [
+      `设备ID ${compact(data.os?.device_id || "-", 80)}`,
+      `产品ID ${compact(data.os?.product_id || "-", 80)}`,
     ].join(" | "),
   );
   lines.push(
@@ -306,6 +394,8 @@ function buildRealtimeStatusText(data) {
   lines.push(
     [
       `网络IP ${compact(data.network?.primary_ip || "-")}(${compact(data.network?.primary_nic || "-")})`,
+      `MAC ${compact(data.network?.primary_mac || "-")}`,
+      `连接数 ${num(data.network?.connection_count || 0)}`,
       `累计入 ${bytes(data.network?.bytes_recv)}`,
       `累计出 ${bytes(data.network?.bytes_sent)}`,
       `包入 ${num(data.network?.packets_in)}`,
@@ -412,6 +502,7 @@ function bindLogActions() {
   document.getElementById("logErrorBtn").addEventListener("click", () => queryLogs(true));
   document.getElementById("logExportBtn").addEventListener("click", exportLogs);
   document.getElementById("logSearchApp").addEventListener("input", renderAppCards);
+  document.getElementById("logAddCardBtn").addEventListener("click", openAddLogCardModal);
 }
 
 function bindRepairActions() {
@@ -479,7 +570,7 @@ function bindModal() {
 }
 
 async function loadConfig() {
-  const res = await fetch("/api/config");
+  const res = await fetchWithTimeout("/api/config", 10000);
   state.config = await res.json();
   state.logRules = state.config?.log_analysis?.rules || [];
 
@@ -494,7 +585,7 @@ async function loadConfig() {
 }
 
 async function loadTrendHistory() {
-  const res = await fetch("/api/monitor/trends?hours=24");
+  const res = await fetchWithTimeout("/api/monitor/trends?hours=24", 12000);
   const data = await res.json();
   if (!res.ok) return;
   const series = data?.series || {};
@@ -512,13 +603,22 @@ function startMonitorLoop() {
   }, sec * 1000);
 }
 
-async function refreshMonitor() {
-  const res = await fetch("/api/monitor");
-  const data = await res.json();
-  if (!res.ok) return;
-  state.monitorSnapshot = data;
-  state.combinedProcesses = mergeProcessList(data.top_processes || [], data.jvm || []);
-  renderMonitor(data);
+async function refreshMonitor(strict = false) {
+  try {
+    const res = await fetchWithTimeout("/api/monitor", 12000);
+    if (!res.ok) {
+      throw new Error(`monitor status ${res.status}`);
+    }
+    const data = await res.json();
+    state.monitorSnapshot = data;
+    state.combinedProcesses = mergeProcessList(data.top_processes || [], data.jvm || []);
+    renderMonitor(data);
+    return data;
+  } catch (err) {
+    if (strict) throw err;
+    console.error("refresh monitor failed", err);
+    return null;
+  }
 }
 
 function renderMonitor(data) {
@@ -558,10 +658,11 @@ function renderMonitor(data) {
   }
   setText(
     "netPackets",
-    `当前 IP ${data.network?.primary_ip || "-"} (${data.network?.primary_nic || "-"}) | 实时总吞吐 ${bytes(rates.netRate)}/秒`,
+    `当前网卡 ${data.network?.primary_nic || "-"}${data.network?.primary_mac ? ` | MAC ${data.network?.primary_mac}` : ""} | 连接数 ${num(data.network?.connection_count || 0)} | 实时总吞吐 ${bytes(rates.netRate)}/秒`,
   );
 
   setText("processCount", `${num(data.process_count)}`);
+  renderSystemInfo(data);
   setText("osInfo", `${data.os?.hostname || "-"} / ${data.os?.platform || "-"} / 运行时长 ${formatDuration(data.os?.uptime)}`);
 
   const diskIoFlowEl = document.getElementById("diskIoFlow");
@@ -612,17 +713,7 @@ function renderMonitor(data) {
     true,
   );
 
-  renderTable(
-    "portList",
-    ["进程名", "端口", "PID", "状态", "路径"],
-    (data.ports || []).slice(0, 10).map((x) => [
-      displayPortProcessName(x),
-      x.port,
-      x.pid,
-      localizePortStatus(x.status),
-      displayPortPath(x),
-    ]),
-  );
+  renderPortTable();
 
   const protocolServices = []
     .concat((data.snmp || []).map(mapSnmpResultToService))
@@ -790,6 +881,12 @@ function openTrendModal(key) {
     </div>
   `;
   openModal(cfg.title, html);
+  requestAnimationFrame(() => {
+    const scrollBox = document.querySelector("#modalBody .trend-modal-scroll");
+    if (scrollBox) {
+      scrollBox.scrollLeft = Math.max(0, scrollBox.scrollWidth - scrollBox.clientWidth);
+    }
+  });
   bindTrendModalHover(renderPoints, cfg);
 }
 
@@ -959,9 +1056,21 @@ function bindTrendModalHover(points, cfg) {
     renderAt(idx, rect);
   };
 
+  const showLatest = () => {
+    const rect = chart.getBoundingClientRect();
+    if (!rect.width) return;
+    renderAt(Math.max(0, geo.coords.length - 1), rect);
+  };
+
   chart.addEventListener("mouseenter", (e) => onMove(e.clientX));
   chart.addEventListener("mousemove", (e) => onMove(e.clientX));
   chart.addEventListener("mouseleave", hide);
+
+  requestAnimationFrame(() => {
+    const sb = chart.closest(".trend-modal-scroll");
+    if (sb) sb.scrollLeft = Math.max(0, sb.scrollWidth - sb.clientWidth);
+    requestAnimationFrame(showLatest);
+  });
 }
 
 function mapSnmpResultToService(item) {
@@ -989,6 +1098,34 @@ function mapNmapResultToService(item) {
     status: item.status || "unknown",
     detail: detailParts.join(" | "),
   };
+}
+
+function renderPortTable() {
+  const ports = state.monitorSnapshot?.ports || [];
+  const keyword = (document.getElementById("portSearch")?.value || "").trim().toLowerCase();
+  const filtered = ports.filter((x) => {
+    if (!keyword) return true;
+    const searchable = [
+      displayPortProcessName(x),
+      x.port,
+      x.pid,
+      localizePortStatus(x.status),
+      displayPortPath(x),
+    ]
+      .join(" ")
+      .toLowerCase();
+    return searchable.includes(keyword);
+  });
+
+  const limit = keyword ? 120 : 10;
+  const rows = filtered.slice(0, limit).map((x) => [
+    displayPortProcessName(x),
+    x.port,
+    x.pid,
+    localizePortStatus(x.status),
+    displayPortPath(x),
+  ]);
+  renderTable("portList", ["进程名", "端口", "PID", "状态", "路径"], rows);
 }
 
 function renderProcessTable() {
@@ -1121,24 +1258,36 @@ async function killProcess(pid) {
 }
 
 async function loadApps() {
-  const res = await fetch("/api/logs/apps");
+  const res = await fetchWithTimeout("/api/logs/apps", 10000);
   const data = await res.json();
   if (!res.ok) return;
   state.apps = data.apps || [];
   state.logRules = data.rules || state.logRules;
-  renderAppCards();
+  ensureCurrentLogCard(true);
 }
 
 function renderAppCards() {
   const box = document.getElementById("appCards");
   const keyword = (document.getElementById("logSearchApp").value || "").toLowerCase();
-  const apps = state.apps.filter((x) => x.name.toLowerCase().includes(keyword));
+  const apps = state.apps.filter((x) => `${x.name || ""} ${x.description || ""}`.toLowerCase().includes(keyword));
   box.innerHTML = "";
 
   apps.forEach((app) => {
     const div = document.createElement("div");
     div.className = "app-card" + (state.currentApp?.name === app.name ? " active" : "");
-    div.innerHTML = `<h4>${escapeHTML(app.name)}</h4><p>${escapeHTML(app.type)}</p><p>日志文件: ${num(app.log_files.length)}</p>`;
+    div.innerHTML = `
+      <div class="app-card-top">
+        <h4>${escapeHTML(app.name)}</h4>
+        <button class="btn sm danger log-card-delete-btn" data-name="${escapeHTML(app.name)}">删除</button>
+      </div>
+      <p>${escapeHTML(localizeLogSourceType(app.type))}</p>
+      <p>日志源: ${num(app.log_files?.length || 0)}</p>
+      <p>${escapeHTML(app.description || "-")}</p>
+    `;
+    div.querySelector(".log-card-delete-btn")?.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      await deleteLogCard(app.name);
+    });
     div.addEventListener("click", () => {
       state.currentApp = app;
       setText("logCurrentApp", `当前应用：${app.name}`);
@@ -1148,6 +1297,128 @@ function renderAppCards() {
     });
     box.appendChild(div);
   });
+}
+
+function localizeLogSourceType(raw) {
+  const t = String(raw || "").trim().toLowerCase();
+  if (t === "windows-eventlog") return "Windows 事件日志";
+  if (t === "system-log") return "系统日志";
+  if (t === "app-log") return "应用日志";
+  if (t === "custom-log") return "自定义日志";
+  return t || "-";
+}
+
+function resolveDefaultLogCard() {
+  if (!Array.isArray(state.apps) || !state.apps.length) return null;
+  const system = state.apps.find((x) => {
+    const name = String(x?.name || "").toLowerCase();
+    const type = String(x?.type || "").toLowerCase();
+    return name.includes("系统日志") || name.includes("system log") || type.includes("system") || type.includes("eventlog");
+  });
+  return system || state.apps[0] || null;
+}
+
+function ensureCurrentLogCard(triggerQuery = false) {
+  if (!Array.isArray(state.apps) || !state.apps.length) {
+    state.currentApp = null;
+    renderAppCards();
+    setText("logCurrentApp", "当前应用：无");
+    renderLogFileSelector();
+    const result = document.getElementById("logResult");
+    if (result) result.textContent = "";
+    return;
+  }
+
+  const current = state.currentApp?.name;
+  const matched = state.apps.find((x) => x.name === current);
+  state.currentApp = matched || resolveDefaultLogCard();
+
+  renderAppCards();
+  if (state.currentApp) {
+    setText("logCurrentApp", `当前应用：${state.currentApp.name}`);
+    renderLogFileSelector();
+    if (triggerQuery) queryLogs(false);
+  }
+}
+
+function openAddLogCardModal() {
+  const html = `
+    <div class="system-detail-grid">
+      <section class="system-detail-block">
+        <h4>新增日志卡片</h4>
+        <div class="row">
+          <input id="newLogName" class="input" placeholder="卡片名称，例如：系统日志 / nginx日志" />
+          <select id="newLogType" class="input">
+            <option value="custom-log">自定义日志文件</option>
+            <option value="system-log">系统日志文件</option>
+            <option value="windows-eventlog">Windows 事件日志</option>
+          </select>
+        </div>
+        <div class="row">
+          <input id="newLogDesc" class="input" placeholder="描述（可选）" />
+        </div>
+        <div class="row">
+          <textarea id="newLogFiles" class="input" rows="5" style="width:100%;" placeholder="每行一个日志源。文件日志写绝对/相对路径；Windows 事件日志写频道名，如 System / Application / Security"></textarea>
+        </div>
+        <div class="row">
+          <button id="saveNewLogCardBtn" class="btn">保存卡片</button>
+        </div>
+      </section>
+    </div>
+  `;
+  openModal("添加日志卡片", html);
+  const saveBtn = document.getElementById("saveNewLogCardBtn");
+  if (!saveBtn) return;
+  saveBtn.addEventListener("click", async () => {
+    const name = (document.getElementById("newLogName")?.value || "").trim();
+    const type = (document.getElementById("newLogType")?.value || "").trim() || "custom-log";
+    const description = (document.getElementById("newLogDesc")?.value || "").trim();
+    const filesRaw = (document.getElementById("newLogFiles")?.value || "").trim();
+    const logFiles = filesRaw
+      .split(/\r?\n/)
+      .map((x) => x.trim())
+      .filter((x) => x.length > 0);
+    if (!name) {
+      alert("请填写卡片名称");
+      return;
+    }
+    if (!logFiles.length) {
+      alert("请至少填写一个日志源");
+      return;
+    }
+    await createLogCard({ name, type, description, log_files: logFiles });
+  });
+}
+
+async function createLogCard(payload) {
+  const res = await fetch("/api/logs/apps", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    alert(data.error || "新增日志卡片失败");
+    return;
+  }
+  closeModal();
+  await loadApps();
+}
+
+async function deleteLogCard(name) {
+  const appName = String(name || "").trim();
+  if (!appName) return;
+  if (!confirm(`确认删除日志卡片「${appName}」？`)) return;
+  const res = await fetch(`/api/logs/apps/${encodeURIComponent(appName)}`, { method: "DELETE" });
+  const data = await res.json();
+  if (!res.ok) {
+    alert(data.error || "删除日志卡片失败");
+    return;
+  }
+  if (state.currentApp?.name === appName) {
+    state.currentApp = null;
+  }
+  await loadApps();
 }
 
 function renderLogFileSelector() {
@@ -1212,7 +1483,7 @@ async function exportLogs() {
 }
 
 async function loadScripts() {
-  const res = await fetch("/api/scripts");
+  const res = await fetchWithTimeout("/api/scripts", 10000);
   const data = await res.json();
   if (!res.ok) return;
   state.scripts = data.scripts || [];
@@ -1252,7 +1523,7 @@ function renderScriptLibrary() {
 }
 
 async function loadScriptRuns() {
-  const res = await fetch("/api/scripts/runs?limit=100");
+  const res = await fetchWithTimeout("/api/scripts/runs?limit=100", 10000);
   const data = await res.json();
   if (!res.ok) return;
   const rows = (data.items || []).map((x) => [
@@ -1286,7 +1557,7 @@ async function pollRunDetail() {
 }
 
 async function loadBackups() {
-  const res = await fetch("/api/backups");
+  const res = await fetchWithTimeout("/api/backups", 10000);
   const data = await res.json();
   if (!res.ok) return;
   const rows = (data.items || []).map((x) => [
@@ -1505,6 +1776,258 @@ function localizePortStatus(raw) {
   if (["syn_recv"].includes(v)) return "接收连接";
   if (["fin_wait_1", "fin_wait_2", "closing", "last_ack", "close"].includes(v)) return "关闭中";
   return String(raw);
+}
+
+function renderSystemInfo(snapshot) {
+  const box = document.getElementById("systemInfoQuick");
+  if (!box) return;
+  const data = snapshot || {};
+  const info = data.os || {};
+  const network = data.network || {};
+  const diskHardware = Array.isArray(data.disk_hardware) ? data.disk_hardware : [];
+  const cpu = data.cpu || {};
+  const memory = data.memory || {};
+
+  const diskSerial = resolvePrimaryDiskSerial(diskHardware);
+  const resource = resolveResourceSummary(cpu, memory);
+  const items = [
+    {
+      label: "操作系统",
+      value: String(info.os_type || info.platform || "-"),
+      full: String(info.os_type || info.platform || "-"),
+    },
+    {
+      label: "系统版本",
+      value: String(info.version || "-"),
+      full: String(info.version || "-"),
+    },
+    {
+      label: "网络 IP",
+      value: String(network.primary_ip || "-"),
+      full: String(network.primary_ip || "-"),
+    },
+    {
+      label: "硬盘序列号",
+      value: shortId(diskSerial),
+      full: diskSerial,
+    },
+    {
+      label: "资源概览",
+      value: resource,
+      full: resource,
+    },
+  ];
+
+  box.innerHTML = items
+    .map(
+      (x) => `
+      <div
+        class="system-info-item"
+        role="button"
+        tabindex="0"
+        data-copy="${escapeHTML(x.full)}"
+        data-full="${escapeHTML(`${x.label}：${x.full}`)}"
+        title="${escapeHTML(`${x.label}：${x.full}`)}"
+      >
+        <span class="system-info-label">${escapeHTML(x.label)}</span>
+        <span class="system-info-value" title="${escapeHTML(x.full)}">${escapeHTML(x.value)}</span>
+      </div>
+    `,
+    )
+    .join("");
+}
+
+function resolvePrimaryDiskSerial(items) {
+  const list = Array.isArray(items) ? items : [];
+  for (const item of list) {
+    const serial = String(item?.serial || "").trim();
+    if (serial) return serial;
+  }
+  return "-";
+}
+
+function resolveResourceSummary(cpu, memory) {
+  const core = Number(cpu?.core_count || 0);
+  const total = Number(memory?.total || 0);
+  const gb = total > 0 ? Math.ceil(total / 1024 / 1024 / 1024) : 0;
+  if (core > 0 && gb > 0) return `${num(core)}核${num(gb)}G`;
+  if (core > 0) return `${num(core)}核`;
+  if (gb > 0) return `${num(gb)}G`;
+  return "-";
+}
+
+async function copySystemInfoCard(card) {
+  const text = String(card?.dataset?.copy || "").trim();
+  if (!text || text === "-") {
+    showCopyToast("当前字段暂无可复制内容");
+    return;
+  }
+  const ok = await copyText(text);
+  if (ok) {
+    showCopyToast(`已复制：${shorten(text, 36)}`);
+    return;
+  }
+  showCopyToast("复制失败，请手动复制");
+}
+
+function openSystemInfoModal() {
+  const snapshot = state.monitorSnapshot || {};
+  openModal("系统信息详情", renderSystemDetailHTML(snapshot));
+}
+
+function renderSystemDetailHTML(snapshot) {
+  const os = snapshot.os || {};
+  const cpu = snapshot.cpu || {};
+  const memory = snapshot.memory || {};
+  const network = snapshot.network || {};
+  const disks = Array.isArray(snapshot.disks) ? snapshot.disks : [];
+  const diskHardware = Array.isArray(snapshot.disk_hardware) ? snapshot.disk_hardware : [];
+  const gpuCards = Array.isArray(snapshot.gpu_cards) ? snapshot.gpu_cards : [];
+  const networkCards = Array.isArray(snapshot.network_cards) ? snapshot.network_cards : [];
+  const memoryModules = Array.isArray(memory.modules) ? memory.modules : [];
+
+  const sections = [];
+
+  const osRows = [
+    ["主机名", os.hostname || "-"],
+    ["操作系统类型", os.os_type || os.platform || "-"],
+    ["系统版本", os.version || "-"],
+    ["内核版本", os.kernel_version || "-"],
+    ["设备 ID", os.device_id || "-"],
+    ["产品 ID", os.product_id || "-"],
+    ["平台/架构", os.platform || "-"],
+    ["运行时长", formatDuration(os.uptime)],
+    ["负载(1分钟)", formatLoad(os.load1)],
+    ["负载(5分钟)", formatLoad(os.load5)],
+    ["负载(15分钟)", formatLoad(os.load15)],
+  ];
+  sections.push(renderSystemDetailSection("系统与运行信息", renderTableHTML(["字段", "值"], osRows)));
+
+  const cpuRows = [
+    ["CPU 型号", cpu.model || "-"],
+    ["CPU 架构", cpu.architecture || "-"],
+    ["核心数", num(cpu.core_count)],
+    ["主频", `${fixed(cpu.frequency_mhz)} MHz`],
+    ["当前使用率", `${fixed(cpu.usage_percent)}%`],
+  ];
+  sections.push(renderSystemDetailSection("CPU 信息", renderTableHTML(["字段", "值"], cpuRows)));
+
+  const memoryRows = [
+    ["总内存", bytes(memory.total)],
+    ["已用内存", bytes(memory.used)],
+    ["内存使用率", `${fixed(memory.used_percent)}%`],
+    ["交换分区总量", bytes(memory.swap_total)],
+    ["交换分区已用", bytes(memory.swap_used)],
+    ["交换分区使用率", `${fixed(memory.swap_used_rate)}%`],
+  ];
+  sections.push(renderSystemDetailSection("内存信息", renderTableHTML(["字段", "值"], memoryRows)));
+
+  if (memoryModules.length) {
+    const rows = memoryModules.map((x, idx) => [
+      idx + 1,
+      x.manufacturer || "-",
+      x.model || "-",
+      Number(x.frequency_mhz || 0) > 0 ? `${num(x.frequency_mhz)} MHz` : "-",
+      bytes(x.capacity || 0),
+      x.serial || "-",
+    ]);
+    sections.push(
+      renderSystemDetailSection("内存条明细", renderTableHTML(["序号", "品牌", "型号", "频率", "容量", "序列号"], rows)),
+    );
+  }
+
+  const networkRows = [
+    ["当前活跃网卡", network.primary_nic || "-"],
+    ["当前 IP", network.primary_ip || "-"],
+    ["当前 MAC", network.primary_mac || "-"],
+    ["当前连接数", num(network.connection_count || 0)],
+    ["累计入流量", bytes(network.bytes_recv || 0)],
+    ["累计出流量", bytes(network.bytes_sent || 0)],
+    ["累计入包数", num(network.packets_in || 0)],
+    ["累计出包数", num(network.packets_out || 0)],
+  ];
+  sections.push(renderSystemDetailSection("网络信息", renderTableHTML(["字段", "值"], networkRows)));
+
+  if (networkCards.length) {
+    const rows = networkCards.map((x, idx) => [
+      idx + 1,
+      x.name || "-",
+      x.description || "-",
+      x.mac_address || "-",
+      Number(x.speed_mbps || 0) > 0 ? `${num(x.speed_mbps)} Mbps` : "-",
+      x.adapter_type || "-",
+      x.status || "-",
+    ]);
+    sections.push(
+      renderSystemDetailSection("网卡明细", renderTableHTML(["序号", "名称", "描述", "MAC", "速率", "类型", "状态"], rows)),
+    );
+  }
+
+  if (disks.length) {
+    const rows = disks.map((x) => [
+      x.path || "-",
+      x.device || "-",
+      x.fs_type || "-",
+      `${fixed(x.used_percent)}%`,
+      `${bytes(x.used)} / ${bytes(x.total)}`,
+    ]);
+    sections.push(renderSystemDetailSection("磁盘分区状态", renderTableHTML(["挂载点", "设备", "文件系统", "使用率", "容量"], rows)));
+  }
+
+  if (diskHardware.length) {
+    const rows = diskHardware.map((x, idx) => [
+      idx + 1,
+      x.name || "-",
+      x.model || "-",
+      x.serial || "-",
+      x.interface || "-",
+      x.media_type || "-",
+      bytes(x.size || 0),
+    ]);
+    sections.push(
+      renderSystemDetailSection("磁盘硬件信息", renderTableHTML(["序号", "设备", "型号", "序列号", "接口", "介质", "容量"], rows)),
+    );
+  }
+
+  if (gpuCards.length) {
+    const rows = gpuCards.map((x, idx) => [
+      idx + 1,
+      x.name || "-",
+      x.vendor || "-",
+      Number(x.memory_mb || 0) > 0 ? `${num(x.memory_mb)} MB` : "-",
+      x.driver_version || "-",
+      x.device_id || "-",
+    ]);
+    sections.push(
+      renderSystemDetailSection("显卡信息", renderTableHTML(["序号", "名称", "厂商", "显存", "驱动版本", "设备 ID"], rows)),
+    );
+  } else {
+    sections.push(renderSystemDetailSection("显卡信息", `<div class="trend-empty">暂未获取到显卡信息</div>`));
+  }
+
+  return `<div class="system-detail-grid">${sections.join("")}</div>`;
+}
+
+function renderSystemDetailSection(title, content) {
+  return `
+    <section class="system-detail-block">
+      <h4>${escapeHTML(title)}</h4>
+      ${content}
+    </section>
+  `;
+}
+
+function shortId(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return "-";
+  if (value.length <= 16) return value;
+  return `${value.slice(0, 6)}...${value.slice(-4)}`;
+}
+
+function formatLoad(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return "-";
+  return fixed(n);
 }
 
 function openDiskMetaModal() {
@@ -1811,6 +2334,66 @@ function shorten(raw, max) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function copyText(text) {
+  const value = String(text ?? "");
+  if (!value) return false;
+
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch (err) {
+    console.error("clipboard write failed", err);
+  }
+
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = value;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    ta.style.top = "-9999px";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return !!ok;
+  } catch (err) {
+    console.error("fallback copy failed", err);
+    return false;
+  }
+}
+
+function showCopyToast(message) {
+  let toast = document.getElementById("copyToast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "copyToast";
+    toast.className = "copy-toast";
+    document.body.appendChild(toast);
+  }
+  toast.textContent = String(message || "");
+  toast.classList.add("show");
+
+  if (copyToastTimer) clearTimeout(copyToastTimer);
+  copyToastTimer = setTimeout(() => {
+    toast.classList.remove("show");
+  }, 1600);
+}
+
+async function fetchWithTimeout(url, timeoutMS, options = {}) {
+  const controller = new AbortController();
+  const timeout = Number(timeoutMS || 0);
+  const timer = setTimeout(() => controller.abort(), timeout > 0 ? timeout : 12000);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function withTimeout(promise, ms, reason) {

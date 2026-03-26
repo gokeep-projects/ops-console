@@ -20,34 +20,40 @@ import (
 )
 
 type Snapshot struct {
-	Time         time.Time          `json:"time"`
-	OS           OSInfo             `json:"os"`
-	CPU          CPUInfo            `json:"cpu"`
-	Memory       MemoryInfo         `json:"memory"`
-	Disks        []DiskInfo         `json:"disks"`
-	DiskHardware []DiskHardwareInfo `json:"disk_hardware"`
-	DiskIO       DiskIOSummary      `json:"disk_io"`
-	Network      NetworkInfo        `json:"network"`
-	ProcessCount int                `json:"process_count"`
-	ThreadCount  int                `json:"thread_count"`
-	TopProcesses []ProcessInfo      `json:"top_processes"`
-	Ports        []PortInfo         `json:"ports"`
-	Applications []ServiceStatus    `json:"applications"`
-	Databases    []ServiceStatus    `json:"databases"`
-	Middleware   []ServiceStatus    `json:"middleware"`
-	SNMP         []SNMPTargetStatus `json:"snmp"`
-	Nmap         []NmapTargetStatus `json:"nmap"`
-	JVM          []ProcessInfo      `json:"jvm"`
+	Time         time.Time            `json:"time"`
+	OS           OSInfo               `json:"os"`
+	CPU          CPUInfo              `json:"cpu"`
+	Memory       MemoryInfo           `json:"memory"`
+	Disks        []DiskInfo           `json:"disks"`
+	DiskHardware []DiskHardwareInfo   `json:"disk_hardware"`
+	GPUCards     []GPUCardInfo        `json:"gpu_cards"`
+	NetworkCards []NetworkAdapterInfo `json:"network_cards"`
+	DiskIO       DiskIOSummary        `json:"disk_io"`
+	Network      NetworkInfo          `json:"network"`
+	ProcessCount int                  `json:"process_count"`
+	ThreadCount  int                  `json:"thread_count"`
+	TopProcesses []ProcessInfo        `json:"top_processes"`
+	Ports        []PortInfo           `json:"ports"`
+	Applications []ServiceStatus      `json:"applications"`
+	Databases    []ServiceStatus      `json:"databases"`
+	Middleware   []ServiceStatus      `json:"middleware"`
+	SNMP         []SNMPTargetStatus   `json:"snmp"`
+	Nmap         []NmapTargetStatus   `json:"nmap"`
+	JVM          []ProcessInfo        `json:"jvm"`
 }
 
 type OSInfo struct {
-	Hostname string  `json:"hostname"`
-	Platform string  `json:"platform"`
-	Version  string  `json:"version"`
-	Uptime   uint64  `json:"uptime"`
-	Load1    float64 `json:"load1"`
-	Load5    float64 `json:"load5"`
-	Load15   float64 `json:"load15"`
+	Hostname      string  `json:"hostname"`
+	Platform      string  `json:"platform"`
+	OSType        string  `json:"os_type"`
+	Version       string  `json:"version"`
+	KernelVersion string  `json:"kernel_version"`
+	DeviceID      string  `json:"device_id"`
+	ProductID     string  `json:"product_id"`
+	Uptime        uint64  `json:"uptime"`
+	Load1         float64 `json:"load1"`
+	Load5         float64 `json:"load5"`
+	Load15        float64 `json:"load15"`
 }
 
 type CPUInfo struct {
@@ -89,12 +95,14 @@ type DiskIOSummary struct {
 }
 
 type NetworkInfo struct {
-	BytesSent  uint64 `json:"bytes_sent"`
-	BytesRecv  uint64 `json:"bytes_recv"`
-	PacketsIn  uint64 `json:"packets_in"`
-	PacketsOut uint64 `json:"packets_out"`
-	PrimaryIP  string `json:"primary_ip"`
-	PrimaryNIC string `json:"primary_nic"`
+	BytesSent       uint64 `json:"bytes_sent"`
+	BytesRecv       uint64 `json:"bytes_recv"`
+	PacketsIn       uint64 `json:"packets_in"`
+	PacketsOut      uint64 `json:"packets_out"`
+	ConnectionCount int    `json:"connection_count"`
+	PrimaryIP       string `json:"primary_ip"`
+	PrimaryNIC      string `json:"primary_nic"`
+	PrimaryMAC      string `json:"primary_mac"`
 }
 
 type ProcessInfo struct {
@@ -149,6 +157,8 @@ func Gather(cfg *config.Config) Snapshot {
 		Memory:       gatherMemory(staticMeta),
 		Disks:        gatherDisks(),
 		DiskHardware: staticMeta.DiskHardware,
+		GPUCards:     staticMeta.GPUCards,
+		NetworkCards: staticMeta.NetworkAdapters,
 		DiskIO:       diskIO,
 		Network:      gatherNetwork(),
 		ProcessCount: processCount,
@@ -167,14 +177,51 @@ func Gather(cfg *config.Config) Snapshot {
 func gatherOS() OSInfo {
 	info, _ := host.Info()
 	avg, _ := load.Avg()
+	osType := strings.TrimSpace(info.Platform)
+	if osType == "" {
+		osType = strings.TrimSpace(info.OS)
+	}
+	if osType == "" {
+		osType = "-"
+	}
+
+	version := strings.TrimSpace(info.PlatformVersion)
+	if version == "" {
+		version = "-"
+	}
+
+	kernelVersion := strings.TrimSpace(info.KernelVersion)
+	if kernelVersion == "" {
+		kernelVersion = "-"
+	}
+
+	deviceID := strings.TrimSpace(info.HostID)
+	if deviceID == "" {
+		deviceID = "-"
+	}
+
+	productID := strings.TrimSpace(getProductID())
+	if productID == "" {
+		productID = "-"
+	}
+
+	platform := osType
+	if arch := strings.TrimSpace(info.KernelArch); arch != "" {
+		platform = fmt.Sprintf("%s/%s", osType, arch)
+	}
+
 	return OSInfo{
-		Hostname: info.Hostname,
-		Platform: fmt.Sprintf("%s/%s", info.Platform, info.KernelArch),
-		Version:  info.PlatformVersion,
-		Uptime:   info.Uptime,
-		Load1:    avg.Load1,
-		Load5:    avg.Load5,
-		Load15:   avg.Load15,
+		Hostname:      info.Hostname,
+		Platform:      platform,
+		OSType:        osType,
+		Version:       version,
+		KernelVersion: kernelVersion,
+		DeviceID:      deviceID,
+		ProductID:     productID,
+		Uptime:        info.Uptime,
+		Load1:         avg.Load1,
+		Load5:         avg.Load5,
+		Load15:        avg.Load15,
 	}
 }
 
@@ -294,14 +341,20 @@ func gatherNetwork() NetworkInfo {
 	if len(n) == 0 {
 		return NetworkInfo{}
 	}
-	ip, nic := detectPrimaryNetworkIPv4()
+	connectionCount := 0
+	if cs, err := netio.Connections("inet"); err == nil {
+		connectionCount = len(cs)
+	}
+	ip, nic, mac := detectPrimaryNetworkIPv4()
 	return NetworkInfo{
-		BytesSent:  n[0].BytesSent,
-		BytesRecv:  n[0].BytesRecv,
-		PacketsIn:  n[0].PacketsRecv,
-		PacketsOut: n[0].PacketsSent,
-		PrimaryIP:  ip,
-		PrimaryNIC: nic,
+		BytesSent:       n[0].BytesSent,
+		BytesRecv:       n[0].BytesRecv,
+		PacketsIn:       n[0].PacketsRecv,
+		PacketsOut:      n[0].PacketsSent,
+		ConnectionCount: connectionCount,
+		PrimaryIP:       ip,
+		PrimaryNIC:      nic,
+		PrimaryMAC:      mac,
 	}
 }
 

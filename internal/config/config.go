@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -92,9 +94,18 @@ type LogRule struct {
 }
 
 type LogAnalysisConfig struct {
-	EnableRealtime bool      `yaml:"enable_realtime" json:"enable_realtime"`
-	MaxLines       int       `yaml:"max_lines" json:"max_lines"`
-	Rules          []LogRule `yaml:"rules" json:"rules"`
+	EnableRealtime bool        `yaml:"enable_realtime" json:"enable_realtime"`
+	MaxLines       int         `yaml:"max_lines" json:"max_lines"`
+	Rules          []LogRule   `yaml:"rules" json:"rules"`
+	Sources        []LogSource `yaml:"sources" json:"sources"`
+}
+
+type LogSource struct {
+	Name        string   `yaml:"name" json:"name"`
+	Type        string   `yaml:"type" json:"type"`
+	Enabled     bool     `yaml:"enabled" json:"enabled"`
+	LogFiles    []string `yaml:"log_files" json:"log_files"`
+	Description string   `yaml:"description" json:"description"`
 }
 
 type RepairScript struct {
@@ -182,6 +193,11 @@ func LoadOrCreate(path string) (*Config, error) {
 	if cfg.LogAnalysis.MaxLines <= 0 {
 		cfg.LogAnalysis.MaxLines = 2000
 	}
+	if EnsureLogSources(cfg) {
+		if err := Save(path, cfg); err != nil {
+			return nil, err
+		}
+	}
 	if cfg.Core.Web.Listen == "" {
 		cfg.Core.Web.Listen = "127.0.0.1:18081"
 	}
@@ -200,7 +216,7 @@ func Save(path string, cfg *Config) error {
 }
 
 func DefaultConfig() *Config {
-	return &Config{
+	cfg := &Config{
 		Core: CoreConfig{
 			Web: WebConfig{
 				Listen: "127.0.0.1:18081",
@@ -312,6 +328,117 @@ func DefaultConfig() *Config {
 			},
 		},
 	}
+	EnsureLogSources(cfg)
+	return cfg
+}
+
+func EnsureLogSources(cfg *Config) bool {
+	if cfg == nil {
+		return false
+	}
+	if len(cfg.LogAnalysis.Sources) > 0 {
+		return false
+	}
+	cfg.LogAnalysis.Sources = buildDefaultLogSources(cfg.Applications)
+	return len(cfg.LogAnalysis.Sources) > 0
+}
+
+func buildDefaultLogSources(apps []Application) []LogSource {
+	sources := make([]LogSource, 0, len(apps)+2)
+	sources = append(sources, defaultSystemLogSource())
+	for _, app := range apps {
+		if !app.Enabled || len(app.LogFiles) == 0 {
+			continue
+		}
+		name := strings.TrimSpace(app.Name)
+		if name == "" {
+			continue
+		}
+		sources = append(sources, LogSource{
+			Name:        name,
+			Type:        "app-log",
+			Enabled:     true,
+			LogFiles:    append([]string(nil), app.LogFiles...),
+			Description: "应用日志",
+		})
+	}
+	return dedupeLogSourcesByName(sources)
+}
+
+func defaultSystemLogSource() LogSource {
+	switch runtime.GOOS {
+	case "windows":
+		return LogSource{
+			Name:        "系统日志",
+			Type:        "windows-eventlog",
+			Enabled:     true,
+			LogFiles:    []string{"System", "Application", "Security"},
+			Description: "Windows 事件日志（System/Application/Security）",
+		}
+	case "linux":
+		return LogSource{
+			Name:        "系统日志",
+			Type:        "system-log",
+			Enabled:     true,
+			LogFiles:    []string{"/var/log/syslog", "/var/log/messages", "/var/log/kern.log"},
+			Description: "Linux 系统日志",
+		}
+	case "darwin":
+		return LogSource{
+			Name:        "系统日志",
+			Type:        "system-log",
+			Enabled:     true,
+			LogFiles:    []string{"/var/log/system.log"},
+			Description: "macOS 系统日志",
+		}
+	default:
+		return LogSource{
+			Name:        "系统日志",
+			Type:        "system-log",
+			Enabled:     true,
+			LogFiles:    []string{"/var/log/syslog"},
+			Description: "系统日志",
+		}
+	}
+}
+
+func dedupeLogSourcesByName(items []LogSource) []LogSource {
+	out := make([]LogSource, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		item.Name = name
+		item.Type = strings.TrimSpace(item.Type)
+		if item.Type == "" {
+			item.Type = "custom-log"
+		}
+		if len(item.LogFiles) == 0 {
+			continue
+		}
+		item.Enabled = true
+		out = append(out, item)
+	}
+	return out
+}
+
+func (c *Config) FindLogSource(name string) (LogSource, bool) {
+	key := strings.TrimSpace(name)
+	if key == "" {
+		return LogSource{}, false
+	}
+	for _, src := range c.LogAnalysis.Sources {
+		if strings.TrimSpace(src.Name) == key {
+			return src, true
+		}
+	}
+	return LogSource{}, false
 }
 
 func (c *Config) FindApp(name string) (Application, bool) {
