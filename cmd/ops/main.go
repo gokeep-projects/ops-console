@@ -14,6 +14,7 @@ import (
 	"ops-tool/internal/config"
 	"ops-tool/internal/store"
 	"ops-tool/internal/web"
+	webassets "ops-tool/web"
 )
 
 var version = "dev"
@@ -22,6 +23,9 @@ func main() {
 	baseDir, err := resolveBaseDir()
 	if err != nil {
 		log.Fatalf("resolve base dir failed: %v", err)
+	}
+	if err := webassets.EnsureOnDisk(baseDir); err != nil {
+		log.Fatalf("prepare frontend assets failed: %v", err)
 	}
 
 	configPath := filepath.Join(baseDir, "config", "config.yaml")
@@ -93,13 +97,10 @@ func resolveBaseDir() (string, error) {
 	cwd, _ := os.Getwd()
 	exePath, _ := os.Executable()
 	exeDir := filepath.Dir(exePath)
-	parentExeDir := filepath.Dir(exeDir)
 
 	candidates := dedupeNonEmpty(
 		cwd,
 		exeDir,
-		parentExeDir,
-		filepath.Dir(cwd),
 	)
 	for _, c := range candidates {
 		if hasWebTemplate(c) {

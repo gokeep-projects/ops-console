@@ -2530,9 +2530,7 @@ function localizeServiceType(raw) {
 function localizeServiceStatus(raw) {
   const v = String(raw || "").trim().toLowerCase();
   if (["up", "running", "active", "healthy", "ok", "success", "listen", "listening"].includes(v)) return "正常";
-  if (["down", "failed", "error", "inactive", "stopped", "dead", "unreachable"].includes(v)) return "异常";
-  if (["unknown", ""].includes(v)) return "未知";
-  return raw || "未知";
+  return "未启动";
 }
 
 function localizeServiceDetail(raw) {
