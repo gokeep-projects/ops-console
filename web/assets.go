@@ -15,7 +15,7 @@ import (
 var FS embed.FS
 
 // EnsureOnDisk materializes embedded frontend assets under <baseDir>/web.
-// Existing files are preserved and will not be overwritten.
+// Existing files are overwritten to keep deployed frontend in sync with binary.
 func EnsureOnDisk(baseDir string) error {
 	baseDir = strings.TrimSpace(baseDir)
 	if baseDir == "" {
@@ -38,12 +38,6 @@ func EnsureOnDisk(baseDir string) error {
 		dst := filepath.Join(targetRoot, filepath.FromSlash(path))
 		if d.IsDir() {
 			return os.MkdirAll(dst, 0o755)
-		}
-
-		if _, err := os.Stat(dst); err == nil {
-			return nil
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return err
 		}
 
 		content, err := FS.ReadFile(path)

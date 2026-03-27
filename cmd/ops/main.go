@@ -68,6 +68,7 @@ func main() {
 	go func() {
 		serverErrCh <- srv.Start(addr)
 	}()
+	go tryAutoOpenDashboard(addr)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)

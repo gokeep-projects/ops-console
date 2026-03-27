@@ -142,6 +142,10 @@ func normalizeArchitecture(raw string) string {
 		return "x86_64"
 	case "386":
 		return "x86"
+	case "arm64":
+		return "aarch64"
+	case "arm":
+		return "arm"
 	default:
 		return v
 	}
@@ -337,6 +341,8 @@ func detectLinuxDiskHardware() []DiskHardwareInfo {
 	if err != nil {
 		return nil
 	}
+	serialByDisk := detectLinuxDiskSerialsByLsblk()
+	serialByByID := detectLinuxDiskSerialsByDiskByID()
 	out := make([]DiskHardwareInfo, 0, len(entries))
 	for _, entry := range entries {
 		name := strings.TrimSpace(entry.Name())
@@ -350,6 +356,24 @@ func detectLinuxDiskHardware() []DiskHardwareInfo {
 			model = vendor + " " + model
 		}
 		serial := strings.TrimSpace(readText(filepath.Join(base, "device", "serial")))
+		if !isUsableDiskSerial(serial) {
+			serial = strings.TrimSpace(serialByDisk[name])
+		}
+		if !isUsableDiskSerial(serial) {
+			serial = strings.TrimSpace(readText(filepath.Join(base, "device", "wwid")))
+		}
+		if !isUsableDiskSerial(serial) {
+			serial = strings.TrimSpace(readText(filepath.Join(base, "wwid")))
+		}
+		if !isUsableDiskSerial(serial) {
+			serial = strings.TrimSpace(detectLinuxDiskSerialByUdev("/dev/" + name))
+		}
+		if !isUsableDiskSerial(serial) {
+			serial = strings.TrimSpace(serialByByID[name])
+		}
+		if !isUsableDiskSerial(serial) {
+			serial = ""
+		}
 		size := parseUint64(strings.TrimSpace(readText(filepath.Join(base, "size")))) * 512
 		media := "-"
 		switch strings.TrimSpace(readText(filepath.Join(base, "queue", "rotational"))) {
@@ -363,7 +387,7 @@ func detectLinuxDiskHardware() []DiskHardwareInfo {
 		out = append(out, DiskHardwareInfo{
 			Name:      "/dev/" + name,
 			Model:     nonEmpty(model, name),
-			Serial:    nonEmpty(serial, "-"),
+			Serial:    serial,
 			Interface: iface,
 			MediaType: media,
 			Size:      size,
@@ -371,6 +395,157 @@ func detectLinuxDiskHardware() []DiskHardwareInfo {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+func detectLinuxDiskSerialsByLsblk() map[string]string {
+	out := map[string]string{}
+	cmd := exec.Command("lsblk", "--nodeps", "--noheadings", "--output", "NAME,SERIAL,WWN")
+	raw, err := cmd.Output()
+	if err != nil {
+		return out
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		name := strings.TrimSpace(fields[0])
+		serial := strings.TrimSpace(fields[1])
+		if !isUsableDiskSerial(serial) && len(fields) > 2 {
+			serial = strings.TrimSpace(fields[2])
+		}
+		if name == "" || !isUsableDiskSerial(serial) {
+			continue
+		}
+		if _, ok := out[name]; ok {
+			continue
+		}
+		out[name] = serial
+	}
+	return out
+}
+
+func detectLinuxDiskSerialsByDiskByID() map[string]string {
+	out := map[string]string{}
+	entries, err := os.ReadDir("/dev/disk/by-id")
+	if err != nil {
+		return out
+	}
+
+	for _, entry := range entries {
+		alias := strings.TrimSpace(entry.Name())
+		if alias == "" || strings.Contains(alias, "-part") {
+			continue
+		}
+
+		linkPath := filepath.Join("/dev/disk/by-id", alias)
+		target, err := filepath.EvalSymlinks(linkPath)
+		if err != nil {
+			continue
+		}
+		diskName := strings.TrimSpace(filepath.Base(target))
+		if diskName == "" {
+			continue
+		}
+
+		serial := strings.TrimSpace(parseLinuxDiskSerialAlias(alias))
+		if !isUsableDiskSerial(serial) {
+			continue
+		}
+		if _, ok := out[diskName]; ok {
+			continue
+		}
+		out[diskName] = serial
+	}
+	return out
+}
+
+func detectLinuxDiskSerialByUdev(devicePath string) string {
+	devicePath = strings.TrimSpace(devicePath)
+	if devicePath == "" {
+		return ""
+	}
+
+	cmd := exec.Command("udevadm", "info", "--query=property", "--name", devicePath)
+	raw, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+
+	props := map[string]string{}
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.Contains(line, "=") {
+			continue
+		}
+		pair := strings.SplitN(line, "=", 2)
+		if len(pair) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(pair[0])
+		val := strings.TrimSpace(pair[1])
+		if key != "" && val != "" {
+			props[key] = val
+		}
+	}
+
+	candidates := []string{
+		props["ID_SERIAL_SHORT"],
+		props["ID_SERIAL"],
+		props["ID_WWN"],
+		props["ID_WWN_WITH_EXTENSION"],
+	}
+	for _, item := range candidates {
+		item = strings.TrimSpace(item)
+		if isUsableDiskSerial(item) {
+			return item
+		}
+	}
+	return ""
+}
+
+func parseLinuxDiskSerialAlias(alias string) string {
+	v := strings.TrimSpace(alias)
+	if v == "" {
+		return ""
+	}
+
+	prefixes := []string{"ata-", "scsi-", "nvme-", "wwn-", "virtio-"}
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(v, prefix) {
+			v = strings.TrimPrefix(v, prefix)
+			break
+		}
+	}
+
+	if idx := strings.LastIndex(v, "_"); idx > 0 && idx < len(v)-1 {
+		candidate := strings.TrimSpace(v[idx+1:])
+		if isUsableDiskSerial(candidate) {
+			return candidate
+		}
+	}
+	if isUsableDiskSerial(v) {
+		return v
+	}
+	return ""
+}
+
+func isUsableDiskSerial(serial string) bool {
+	v := strings.TrimSpace(serial)
+	if v == "" {
+		return false
+	}
+	low := strings.ToLower(v)
+	switch low {
+	case "-", "unknown", "none", "null", "(null)", "n/a":
+		return false
+	default:
+		return true
+	}
 }
 
 func detectLinuxDiskInterface(base string) string {

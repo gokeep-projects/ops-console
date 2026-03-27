@@ -423,7 +423,7 @@ body.modal-open {
   border-radius: 10px;
   background: linear-gradient(160deg, #f8fbff, #f3f8ff);
   padding: 8px 10px;
-  min-height: 56px;
+  min-height: 62px;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -489,6 +489,14 @@ body.modal-open {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.system-info-value.multiline {
+  white-space: pre-line;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .copy-toast {
@@ -1108,6 +1116,380 @@ td .btn {
   background: #f8fbff;
 }
 
+.cleanup-panel {
+  gap: 16px;
+}
+
+.cleanup-toolbar-card {
+  border: 1px solid #1f2e4f;
+  background: linear-gradient(145deg, #0f1f3e, #1b3f74 55%, #25589a);
+  color: #eaf2ff;
+}
+
+.cleanup-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.cleanup-toolbar-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cleanup-toolbar-ops {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cleanup-toolbar-title h3 {
+  margin: 0;
+  font-size: 20px;
+  color: #f3f7ff;
+}
+
+.cleanup-indexer-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(109, 214, 168, 0.2);
+  color: #d8ffe8;
+  border: 1px solid rgba(109, 214, 168, 0.5);
+}
+
+.cleanup-indexer-tag.slow {
+  background: rgba(255, 198, 102, 0.2);
+  color: #fff2d6;
+  border-color: rgba(255, 198, 102, 0.5);
+}
+
+.cleanup-toolbar-card .btn {
+  border-color: rgba(224, 236, 255, 0.24);
+}
+
+.cleanup-toolbar-card .btn.sm {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f2f8ff;
+}
+
+.cleanup-toolbar-card .btn.sm:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.cleanup-toolbar-card .btn.sm.danger {
+  background: rgba(255, 109, 109, 0.2);
+  color: #ffe8e8;
+}
+
+.cleanup-filter-row {
+  margin-top: 12px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cleanup-filter-row.compact .input {
+  background: rgba(255, 255, 255, 0.13);
+  border-color: rgba(218, 232, 255, 0.3);
+  color: #f6f9ff;
+}
+
+.cleanup-filter-row.compact .input::placeholder {
+  color: rgba(236, 244, 255, 0.75);
+}
+
+.cleanup-root-options {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cleanup-root-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  border: 1px solid rgba(216, 232, 255, 0.34);
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #f4f8ff;
+}
+
+.cleanup-root-options input[type="checkbox"] {
+  margin: 0;
+}
+
+.cleanup-kpi-grid {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.cleanup-kpi-card {
+  background: rgba(13, 25, 49, 0.45);
+  border: 1px solid rgba(211, 229, 255, 0.25);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.cleanup-kpi-label {
+  font-size: 12px;
+  color: rgba(233, 242, 255, 0.86);
+}
+
+.cleanup-kpi-value {
+  margin-top: 6px;
+  font-size: 20px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+#cleanupSummary,
+#cleanupGarbageSummary {
+  margin-top: 12px;
+  color: rgba(243, 248, 255, 0.92);
+}
+
+.cleanup-main-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
+  gap: 12px;
+}
+
+.cleanup-card-main {
+  min-height: 680px;
+}
+
+.cleanup-side-column {
+  display: grid;
+  grid-template-rows: minmax(210px, 1fr) minmax(180px, 1fr) minmax(180px, 1fr);
+  gap: 12px;
+}
+
+.cleanup-bars-view {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+  max-height: 230px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.cleanup-bar-item {
+  position: relative;
+  border-radius: 9px;
+  border: 1px solid #c8daf8;
+  background: #f5f9ff;
+  overflow: hidden;
+  min-height: 28px;
+}
+
+.cleanup-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, #2a7cf2, #5bb6ff);
+  opacity: 0.85;
+}
+
+.cleanup-bar-text {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 10px;
+  font-size: 12px;
+  color: #173a70;
+}
+
+.cleanup-bar-path {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#cleanupTopBars .hint {
+  margin: 0;
+}
+
+#cleanupFileList,
+#cleanupLargeFileList,
+#cleanupDirSummaryList,
+#cleanupTypeSummaryList {
+  overflow: auto;
+}
+
+#cleanupFileList table,
+#cleanupLargeFileList table,
+#cleanupDirSummaryList table,
+#cleanupTypeSummaryList table {
+  width: max-content;
+  min-width: 100%;
+}
+
+#cleanupFileList th,
+#cleanupFileList td,
+#cleanupLargeFileList th,
+#cleanupLargeFileList td,
+#cleanupDirSummaryList th,
+#cleanupDirSummaryList td,
+#cleanupTypeSummaryList th,
+#cleanupTypeSummaryList td {
+  white-space: nowrap;
+  word-break: normal;
+}
+
+#cleanupFileList th:last-child,
+#cleanupFileList td:last-child,
+#cleanupLargeFileList th:last-child,
+#cleanupLargeFileList td:last-child,
+#cleanupDirSummaryList th:first-child,
+#cleanupDirSummaryList td:first-child {
+  min-width: 300px;
+  max-width: 720px;
+  white-space: normal;
+  word-break: break-all;
+}
+
+.cleanup-garbage-card {
+  border: 1px solid #d6e4fb;
+  background: linear-gradient(180deg, #ffffff, #f6f9ff);
+}
+
+#cleanupGarbageTargets {
+  margin-bottom: 10px;
+}
+
+#cleanupGarbageTargets label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#cleanupGarbageTargets input[type="checkbox"] {
+  margin: 0;
+}
+
+.docker-panel {
+  gap: 14px;
+}
+
+.docker-hero-card {
+  border: 1px solid #d1e1f8;
+  background: radial-gradient(circle at 86% 14%, rgba(127, 184, 255, 0.22), transparent 42%),
+    linear-gradient(135deg, #f8fbff, #eef5ff 58%, #e4efff);
+  color: #17365f;
+}
+
+.docker-hero-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.docker-hero-head h3 {
+  margin: 0;
+  font-size: 22px;
+  color: #15437f;
+}
+
+.docker-status-summary {
+  margin-top: 8px;
+  color: #4b668b;
+}
+
+.docker-hero-badge {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(21, 67, 127, 0.2);
+  background: rgba(21, 67, 127, 0.07);
+  color: #0d4c9b;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.docker-kpi-grid {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.docker-kpi-card {
+  border-radius: 12px;
+  padding: 10px 12px;
+  border: 1px solid #d5e4fb;
+  background: rgba(255, 255, 255, 0.82);
+  color: #1a3f72;
+}
+
+.docker-kpi-card span {
+  font-size: 12px;
+  color: #5e7599;
+}
+
+.docker-kpi-card strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.docker-kpi-card.total strong {
+  color: #15437f;
+}
+
+.docker-kpi-card.running strong {
+  color: #188f5a;
+}
+
+.docker-kpi-card.stopped strong {
+  color: #cc7a12;
+}
+
+.docker-kpi-card.image strong {
+  color: #0f67c8;
+}
+
+.docker-table-card {
+  border: 1px solid #d1e1f8;
+  background: linear-gradient(180deg, #ffffff, #f8fbff);
+}
+
+.docker-table-card .card-head .ops {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.docker-table-card .table {
+  margin-top: 10px;
+}
+
+.docker-table-card table td:last-child {
+  min-width: 280px;
+  white-space: normal;
+}
+
+.docker-action {
+  margin: 2px 4px 2px 0;
+}
+
 .log-view {
   margin-top: 10px;
   border: 1px solid var(--border);
@@ -1716,6 +2098,15 @@ td .btn {
   .system-info-quick {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .cleanup-main-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cleanup-side-column {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: none;
+  }
 }
 
 @media (max-width: 1080px) {
@@ -1767,6 +2158,26 @@ td .btn {
 
   .process-detail-kpi-grid,
   .process-kv-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cleanup-toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .cleanup-toolbar-ops {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .cleanup-filter-row.compact {
+    flex-direction: column;
+  }
+
+  .cleanup-side-column {
     grid-template-columns: 1fr;
   }
 }

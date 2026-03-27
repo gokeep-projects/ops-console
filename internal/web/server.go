@@ -25,6 +25,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/gorilla/websocket"
 )
 
 type Server struct {
@@ -54,6 +55,9 @@ type Server struct {
 	monitorReady     bool
 	monitorStopChan  chan struct{}
 	monitorStopOnce  sync.Once
+
+	wsMu      sync.RWMutex
+	wsClients map[*monitorWSClient]struct{}
 }
 
 const (
@@ -61,7 +65,32 @@ const (
 	trendFlushTriggerLen = 12
 	trendBufferMax       = 4096
 	monitorMinInterval   = 2 * time.Second
+
+	monitorWSWriteTimeout = 10 * time.Second
+	monitorWSReadTimeout  = 70 * time.Second
+	monitorWSPingInterval = 30 * time.Second
+	monitorWSMaxReadBytes = 1024
 )
+
+var monitorWSUpgrader = websocket.Upgrader{
+	ReadBufferSize:  4096,
+	WriteBufferSize: 4096,
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
+}
+
+type monitorWSClient struct {
+	conn      *websocket.Conn
+	send      chan []byte
+	closeOnce sync.Once
+}
+
+type monitorWSMessage struct {
+	Type      string           `json:"type"`
+	Timestamp int64            `json:"timestamp"`
+	Data      monitor.Snapshot `json:"data,omitempty"`
+}
 
 func NewServer(baseDir, configPath string, cfg *config.Config, st *store.Store) (*Server, error) {
 	tplPath := filepath.Join(baseDir, "web", "templates", "index.html")
@@ -79,6 +108,7 @@ func NewServer(baseDir, configPath string, cfg *config.Config, st *store.Store) 
 		runner:      script.NewRunner(st),
 		backup:      backup.NewManager(st),
 		trendBuffer: make([]store.MonitorTrendSample, 0, 256),
+		wsClients:   make(map[*monitorWSClient]struct{}),
 	}
 	s.router = s.routes()
 	return s, nil
@@ -101,6 +131,7 @@ func (s *Server) Start(addr string) error {
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.stopMonitorCollector()
 	s.stopTrendFlusher()
+	s.closeMonitorWSClients()
 	flushErr := s.flushTrendBuffer()
 	if s.httpServer == nil {
 		return flushErr
@@ -130,6 +161,7 @@ func (s *Server) routes() *chi.Mux {
 
 	r.Get("/api/monitor", s.handleMonitor)
 	r.Get("/api/monitor/trends", s.handleMonitorTrends)
+	r.Get("/ws/monitor", s.handleMonitorWS)
 	r.Get("/api/processes/{pid}/detail", s.handleProcessDetail)
 	r.Post("/api/processes/{pid}/kill", s.handleProcessKill)
 
@@ -138,6 +170,12 @@ func (s *Server) routes() *chi.Mux {
 	r.Delete("/api/logs/apps/{app}", s.handleLogAppDelete)
 	r.Get("/api/logs/{app}", s.handleLogSearch)
 	r.Post("/api/logs/{app}/export", s.handleLogExport)
+
+	r.Get("/api/docker/status", s.handleDockerStatus)
+	r.Get("/api/docker/containers", s.handleDockerContainers)
+	r.Post("/api/docker/containers/{id}/action", s.handleDockerContainerAction)
+	r.Get("/api/docker/containers/{id}/logs", s.handleDockerContainerLogs)
+	r.Get("/api/docker/containers/{id}/inspect", s.handleDockerContainerInspect)
 
 	r.Get("/api/scripts", s.handleScripts)
 	r.Post("/api/scripts/upload", s.handleScriptUpload)
@@ -148,6 +186,10 @@ func (s *Server) routes() *chi.Mux {
 	r.Get("/api/backups", s.handleBackups)
 	r.Post("/api/backups/run", s.handleBackupRun)
 	r.Get("/api/backups/download", s.handleBackupDownload)
+
+	r.Get("/api/cleanup/meta", s.handleCleanupMeta)
+	r.Post("/api/cleanup/scan", s.handleCleanupScan)
+	r.Post("/api/cleanup/garbage", s.handleCleanupGarbage)
 	return r
 }
 
@@ -253,6 +295,163 @@ func (s *Server) handleMonitorTrends(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"hours":  hours,
 		"series": series,
+	})
+}
+
+func (s *Server) handleMonitorWS(w http.ResponseWriter, r *http.Request) {
+	conn, err := monitorWSUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	client := &monitorWSClient{
+		conn: conn,
+		send: make(chan []byte, 8),
+	}
+	s.registerMonitorWSClient(client)
+
+	go s.monitorWSReader(client)
+	go s.monitorWSWriter(client)
+
+	if snapshot, ok := s.getMonitorSnapshot(); ok {
+		s.enqueueMonitorSnapshot(client, snapshot)
+		return
+	}
+	s.collectMonitorSnapshot()
+	if snapshot, ok := s.getMonitorSnapshot(); ok {
+		s.enqueueMonitorSnapshot(client, snapshot)
+	}
+}
+
+func (s *Server) registerMonitorWSClient(client *monitorWSClient) {
+	s.wsMu.Lock()
+	if s.wsClients == nil {
+		s.wsClients = make(map[*monitorWSClient]struct{})
+	}
+	s.wsClients[client] = struct{}{}
+	s.wsMu.Unlock()
+}
+
+func (s *Server) unregisterMonitorWSClient(client *monitorWSClient) {
+	s.wsMu.Lock()
+	if _, ok := s.wsClients[client]; ok {
+		delete(s.wsClients, client)
+		client.closeSend()
+	}
+	s.wsMu.Unlock()
+}
+
+func (s *Server) closeMonitorWSClients() {
+	s.wsMu.Lock()
+	clients := make([]*monitorWSClient, 0, len(s.wsClients))
+	for client := range s.wsClients {
+		clients = append(clients, client)
+		delete(s.wsClients, client)
+	}
+	s.wsMu.Unlock()
+
+	for _, client := range clients {
+		client.closeSend()
+		_ = client.conn.Close()
+	}
+}
+
+func (s *Server) monitorWSReader(client *monitorWSClient) {
+	defer func() {
+		s.unregisterMonitorWSClient(client)
+		_ = client.conn.Close()
+	}()
+
+	client.conn.SetReadLimit(monitorWSMaxReadBytes)
+	_ = client.conn.SetReadDeadline(time.Now().Add(monitorWSReadTimeout))
+	client.conn.SetPongHandler(func(string) error {
+		return client.conn.SetReadDeadline(time.Now().Add(monitorWSReadTimeout))
+	})
+
+	for {
+		if _, _, err := client.conn.ReadMessage(); err != nil {
+			return
+		}
+	}
+}
+
+func (s *Server) monitorWSWriter(client *monitorWSClient) {
+	ticker := time.NewTicker(monitorWSPingInterval)
+	defer ticker.Stop()
+	defer func() {
+		s.unregisterMonitorWSClient(client)
+		_ = client.conn.Close()
+	}()
+
+	for {
+		select {
+		case payload, ok := <-client.send:
+			_ = client.conn.SetWriteDeadline(time.Now().Add(monitorWSWriteTimeout))
+			if !ok {
+				_ = client.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+				return
+			}
+			if err := client.conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+				return
+			}
+		case <-ticker.C:
+			_ = client.conn.SetWriteDeadline(time.Now().Add(monitorWSWriteTimeout))
+			if err := client.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
+		}
+	}
+}
+
+func (s *Server) enqueueMonitorSnapshot(client *monitorWSClient, snapshot monitor.Snapshot) {
+	payload, err := json.Marshal(monitorWSMessage{
+		Type:      "snapshot",
+		Timestamp: snapshot.Time.UnixMilli(),
+		Data:      snapshot,
+	})
+	if err != nil {
+		log.Printf("marshal monitor ws snapshot failed: %v", err)
+		return
+	}
+
+	select {
+	case client.send <- payload:
+	default:
+		s.unregisterMonitorWSClient(client)
+		_ = client.conn.Close()
+	}
+}
+
+func (s *Server) broadcastMonitorSnapshot(snapshot monitor.Snapshot) {
+	payload, err := json.Marshal(monitorWSMessage{
+		Type:      "snapshot",
+		Timestamp: snapshot.Time.UnixMilli(),
+		Data:      snapshot,
+	})
+	if err != nil {
+		log.Printf("marshal monitor ws snapshot failed: %v", err)
+		return
+	}
+
+	s.wsMu.RLock()
+	clients := make([]*monitorWSClient, 0, len(s.wsClients))
+	for client := range s.wsClients {
+		clients = append(clients, client)
+	}
+	s.wsMu.RUnlock()
+
+	for _, client := range clients {
+		select {
+		case client.send <- payload:
+		default:
+			s.unregisterMonitorWSClient(client)
+			_ = client.conn.Close()
+		}
+	}
+}
+
+func (c *monitorWSClient) closeSend() {
+	c.closeOnce.Do(func() {
+		close(c.send)
 	})
 }
 
@@ -813,6 +1012,7 @@ func (s *Server) collectMonitorSnapshot() {
 	s.monitorReady = true
 	s.monitorMu.Unlock()
 
+	s.broadcastMonitorSnapshot(snapshot)
 	s.appendTrendSample(buildMonitorTrendSample(snapshot))
 	if s.trendBufferLen() >= trendFlushTriggerLen {
 		if err := s.flushTrendBuffer(); err != nil {

@@ -1,3 +1,6 @@
+//go:build legacy_logs
+// +build legacy_logs
+
 package logs
 
 import (

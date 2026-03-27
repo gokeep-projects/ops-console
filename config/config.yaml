@@ -1,6 +1,6 @@
 core:
     web:
-        listen: 127.0.0.1:18082
+        listen: 0.0.0.0:18082
     sqlite:
         path: data/ops-tool.db
         password: ops-fixed-password-2026
@@ -52,19 +52,7 @@ monitor:
             - --open
         targets:
             - 127.0.0.1
-applications:
-    - name: example-api
-      type: go-service
-      enabled: true
-      process_names:
-        - example-api
-      ports:
-        - 8080
-      health_url: http://127.0.0.1:8080/health
-      health_cmd: ""
-      log_files:
-        - logs/example-api/info.log
-        - logs/example-api/error.log
+applications: []
 log_analysis:
     enable_realtime: true
     max_lines: 2000

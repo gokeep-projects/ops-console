@@ -24,6 +24,18 @@
   currentApp: null,
   currentRunId: null,
   logRealtimeTimer: null,
+  monitorWS: null,
+  monitorWSConnected: false,
+  monitorWSRetryTimer: null,
+  monitorWSRetryAttempt: 0,
+  cleanupMeta: null,
+  cleanupScan: null,
+  cleanupScanAbortController: null,
+  cleanupGarbageAbortController: null,
+  cleanupFilteredFiles: [],
+  cleanupFilteredLargeFiles: [],
+  dockerStatus: null,
+  dockerContainers: [],
 };
 
 const bootState = {
@@ -38,10 +50,13 @@ let copyToastTimer = null;
 let appToastTimer = null;
 
 const TREND_KEEP_MS = 24 * 60 * 60 * 1000;
-const TREND_MINI_MS = 60 * 60 * 1000;
+const TREND_MINI_HOURS = 4;
+const TREND_MINI_MS = TREND_MINI_HOURS * 60 * 60 * 1000;
 const TREND_MAX_RENDER_POINTS = 2400;
 const TREND_DETAIL_MIN_WIDTH = 980;
 const TREND_DETAIL_POINT_PX = 1.8;
+const MONITOR_WS_RETRY_BASE_MS = 1200;
+const MONITOR_WS_RETRY_MAX_MS = 15000;
 const TREND_SERIES = {
   cpu: {
     title: "CPU 使用趋势",
@@ -103,7 +118,10 @@ document.addEventListener("DOMContentLoaded", () => {
     bindLogActions();
     bindRepairActions();
     bindBackupActions();
+    bindCleanupActions();
+    bindDockerActions();
     bindModal();
+    window.addEventListener("beforeunload", stopMonitorSocket);
     bootstrap();
   } catch (err) {
     console.error("页面初始化失败", err);
@@ -185,15 +203,34 @@ async function bootstrap() {
   bootRunning = true;
   try {
     bootState.done = 0;
+    const softFailures = [];
+
+    const runOptionalBootStep = async (text, fn, options = {}) => {
+      const ok = await runBootStep(text, fn, { ...options, required: false });
+      if (!ok) {
+        softFailures.push(text);
+      }
+      return ok;
+    };
+
     await runBootStep("加载配置", loadConfig, { required: true, retries: 1, timeout: 12000 });
-    await runBootStep("采集首批监控数据", () => refreshMonitor(true), { required: true, retries: 2, timeout: 30000 });
-    await runBootStep("加载趋势历史", loadTrendHistory, { required: true, retries: 1, timeout: 12000 });
-    await runBootStep("加载应用和日志规则", loadApps, { required: true, retries: 1, timeout: 10000 });
-    await runBootStep("加载脚本定义", loadScripts, { required: true, retries: 1, timeout: 10000 });
-    await runBootStep("加载脚本执行历史", loadScriptRuns, { required: true, retries: 1, timeout: 10000 });
-    await runBootStep("加载备份记录", loadBackups, { required: true, retries: 1, timeout: 10000 });
-    finishBoot();
+    await runOptionalBootStep("采集首批监控数据", () => refreshMonitor(false), { retries: 2, timeout: 45000 });
+    await runOptionalBootStep("加载趋势历史", loadTrendHistory, { retries: 1, timeout: 20000 });
+    await runOptionalBootStep("加载应用和日志规则", loadApps, { retries: 1, timeout: 16000 });
+    await runOptionalBootStep("加载脚本定义", loadScripts, { retries: 1, timeout: 16000 });
+    await runOptionalBootStep("加载脚本执行历史", loadScriptRuns, { retries: 1, timeout: 16000 });
+    await runOptionalBootStep("加载备份记录", loadBackups, { retries: 1, timeout: 16000 });
+
+    const degraded = softFailures.length > 0;
+    finishBoot(degraded ? "初始化完成（部分数据稍后加载）" : "初始化完成");
     startMonitorLoop();
+    startMonitorSocket();
+
+    if (degraded) {
+      const msg = `部分模块初始化延迟：${softFailures.join("、")}，已进入系统并将在后台重试`;
+      showAppToast(msg, "warning");
+      console.warn(msg);
+    }
   } catch (err) {
     console.error("bootstrap failed", err);
     updateBoot("初始化失败，正在重试...", Math.floor((bootState.done / bootState.total) * 100));
@@ -290,6 +327,18 @@ function switchSection(target) {
     panel.style.display = visible ? "" : "none";
   });
   syncLogRealtimeState(target);
+  if (target === "cleanup") {
+    ensureCleanupMeta().catch((err) => {
+      console.error("load cleanup meta failed", err);
+      showAppToast("加载数据清理配置失败", "error");
+    });
+  }
+  if (target === "docker") {
+    loadDockerDashboard().catch((err) => {
+      console.error("load docker dashboard failed", err);
+      showAppToast("加载 Docker 数据失败", "error");
+    });
+  }
 }
 
 function bindMonitorActions() {
@@ -301,6 +350,12 @@ function bindMonitorActions() {
     state.monitorPaused = !state.monitorPaused;
     const btn = document.getElementById("monitorToggleBtn");
     btn.textContent = state.monitorPaused ? "恢复监控" : "停止监控";
+    if (state.monitorPaused) {
+      stopMonitorSocket();
+      return;
+    }
+    refreshMonitor();
+    startMonitorSocket();
   });
 
   document.getElementById("openPortModalBtn").addEventListener("click", () => {
@@ -493,8 +548,8 @@ function buildRealtimeStatusText(data) {
     [
       `进程总数 ${num(data.process_count)}`,
       `线程总数 ${num(data.thread_count)}`,
-      `磁盘IO实时读 ${bytes(summaryRate.readBytesRate)}/秒(${fixed(summaryRate.readOpsRate)}次/秒)`,
-      `写 ${bytes(summaryRate.writeBytesRate)}/秒(${fixed(summaryRate.writeOpsRate)}次/秒)`,
+      `磁盘IO实时读 ${rateBytes(summaryRate.readBytesRate)}/秒(${fixed(summaryRate.readOpsRate)}次/秒)`,
+      `写 ${rateBytes(summaryRate.writeBytesRate)}/秒(${fixed(summaryRate.writeOpsRate)}次/秒)`,
     ].join(" | "),
   );
 
@@ -517,7 +572,7 @@ function buildRealtimeStatusText(data) {
       writeOpsRate: 0,
     };
     lines.push(
-      `${compact(x.path)} | ${compact(x.device)} | ${fixed(x.used_percent)}% | ${bytes(x.used)}/${bytes(x.total)} | 读 ${bytes(rate.readBytesRate)}/秒(${fixed(rate.readOpsRate)}次/秒) 写 ${bytes(rate.writeBytesRate)}/秒(${fixed(rate.writeOpsRate)}次/秒)`,
+      `${compact(x.path)} | ${compact(x.device)} | ${fixed(x.used_percent)}% | ${bytes(x.used)}/${bytes(x.total)} | 读 ${rateBytes(rate.readBytesRate)}/秒(${fixed(rate.readOpsRate)}次/秒) 写 ${rateBytes(rate.writeBytesRate)}/秒(${fixed(rate.writeOpsRate)}次/秒)`,
     );
   });
 
@@ -675,6 +730,737 @@ function bindBackupActions() {
   });
 }
 
+function bindCleanupActions() {
+  const scanBtn = document.getElementById("cleanupScanBtn");
+  if (!scanBtn) return;
+
+  const stopScanBtn = document.getElementById("cleanupStopScanBtn");
+  const stopGarbageBtn = document.getElementById("cleanupStopGarbageBtn");
+  const loadRootsBtn = document.getElementById("cleanupLoadRootsBtn");
+
+  if (loadRootsBtn) {
+    loadRootsBtn.addEventListener("click", async () => {
+      await ensureCleanupMeta(true);
+    });
+  }
+
+  scanBtn.addEventListener("click", runCleanupScan);
+  if (stopScanBtn) {
+    stopScanBtn.addEventListener("click", stopCleanupScan);
+    stopScanBtn.disabled = true;
+  }
+
+  if (stopGarbageBtn) {
+    stopGarbageBtn.addEventListener("click", stopCleanupGarbage);
+    stopGarbageBtn.disabled = true;
+  }
+
+  document.getElementById("cleanupApplyFilterBtn").addEventListener("click", applyCleanupFilterAndRender);
+  document.getElementById("cleanupSearch").addEventListener("input", applyCleanupFilterAndRender);
+  document.getElementById("cleanupLargeThresholdGB").addEventListener("change", applyCleanupFilterAndRender);
+  document.getElementById("cleanupPreviewBtn").addEventListener("click", () => runGarbageCleanup(true));
+  document.getElementById("cleanupRunBtn").addEventListener("click", () => runGarbageCleanup(false));
+
+  renderTable("cleanupFileList", ["序号", "类型", "修改时间", "大小", "大小占比", "完整路径"], []);
+  renderTable("cleanupLargeFileList", ["序号", "类型", "修改时间", "大小", "大小占比", "完整路径"], []);
+  renderTable("cleanupDirSummaryList", ["目录", "文件数", "占用", "占比"], []);
+  renderTable("cleanupTypeSummaryList", ["类型", "文件数", "占用", "占比"], []);
+  renderTable("cleanupGarbageResult", ["目标", "候选文件", "候选体积", "已清理文件", "已清理体积", "失败数", "目录"], []);
+}
+
+function bindDockerActions() {
+  const refreshBtn = document.getElementById("dockerRefreshBtn");
+  const searchInput = document.getElementById("dockerSearch");
+  const scopeSelect = document.getElementById("dockerScope");
+  const table = document.getElementById("dockerContainerTable");
+  if (!refreshBtn || !searchInput || !scopeSelect || !table) return;
+
+  refreshBtn.addEventListener("click", () => {
+    loadDockerDashboard(true).catch((err) => {
+      console.error("refresh docker dashboard failed", err);
+      showAppToast("刷新 Docker 数据失败", "error");
+    });
+  });
+  searchInput.addEventListener("input", renderDockerContainerTable);
+  scopeSelect.addEventListener("change", () => {
+    loadDockerContainers(true).catch((err) => {
+      console.error("reload docker containers failed", err);
+      showAppToast("加载容器列表失败", "error");
+    });
+  });
+  table.addEventListener("click", handleDockerTableClick);
+}
+
+async function loadDockerDashboard(force = false) {
+  await loadDockerStatus(force);
+  await loadDockerContainers(force);
+}
+
+async function loadDockerStatus(force = false) {
+  if (!force && state.dockerStatus) {
+    renderDockerStatusSummary();
+    return state.dockerStatus;
+  }
+  let data = null;
+  try {
+    const res = await fetchWithTimeout("/api/docker/status", 12000);
+    data = await res.json();
+    if (!res.ok) {
+      showAppToast(data.error || "加载 Docker 状态失败", "error");
+      return state.dockerStatus;
+    }
+  } catch (err) {
+    console.error("load docker status failed", err);
+    showAppToast("加载 Docker 状态失败", "error");
+    return state.dockerStatus;
+  }
+  state.dockerStatus = data || null;
+  renderDockerStatusSummary();
+  return state.dockerStatus;
+}
+
+async function loadDockerContainers(force = false) {
+  const scope = document.getElementById("dockerScope")?.value || "all";
+  const all = scope !== "running";
+  let data = null;
+
+  try {
+    const res = await fetchWithTimeout(`/api/docker/containers?all=${all ? "1" : "0"}`, 20000);
+    data = await res.json();
+    if (!res.ok) {
+      showAppToast(data.error || "加载容器列表失败", "error");
+      return state.dockerContainers;
+    }
+  } catch (err) {
+    console.error("load docker containers failed", err);
+    showAppToast("加载容器列表失败", "error");
+    return state.dockerContainers;
+  }
+
+  if (data?.status) {
+    state.dockerStatus = data.status;
+  }
+  renderDockerStatusSummary();
+  state.dockerContainers = Array.isArray(data?.items) ? data.items : [];
+  renderDockerContainerTable();
+  return state.dockerContainers;
+}
+
+function renderDockerStatusSummary() {
+  const el = document.getElementById("dockerStatusSummary");
+  if (!el) return;
+  const st = state.dockerStatus || {};
+  if (!st.installed) {
+    el.textContent = "Docker 未安装或不可用。安装 Docker Desktop / Docker Engine 后即可管理容器。";
+    return;
+  }
+  if (!st.daemon_running) {
+    el.textContent = "Docker 服务未就绪（可能未安装或未启动）。安装并启动后即可管理容器。";
+    return;
+  }
+  const parts = [];
+  if (st.version) parts.push(`客户端 ${st.version}`);
+  if (st.server_version) parts.push(`服务端 ${st.server_version}`);
+  if (st.context) parts.push(`上下文 ${st.context}`);
+  if (st.platform) parts.push(`平台 ${st.platform}`);
+  el.textContent = parts.length ? parts.join(" | ") : "Docker 运行正常";
+}
+
+function renderDockerContainerTable() {
+  const list = Array.isArray(state.dockerContainers) ? state.dockerContainers : [];
+  renderDockerKPIs(list);
+
+  const keyword = String(document.getElementById("dockerSearch")?.value || "")
+    .trim()
+    .toLowerCase();
+
+  const filtered = list.filter((item) => {
+    if (!keyword) return true;
+    const text = `${item.name || ""} ${item.image || ""} ${item.id || ""} ${item.status || ""}`.toLowerCase();
+    return text.includes(keyword);
+  });
+
+  const rows = filtered.map((item) => {
+    const running = String(item.state || "").toLowerCase() === "running" || String(item.status || "").toLowerCase().includes("up ");
+    const statusHTML = `<span class="badge ${running ? "up" : "down"}">${escapeHTML(item.status || item.state || "-")}</span>`;
+    const id = escapeHTML(String(item.id || ""));
+    const actions = running
+      ? [
+          `<button class="btn sm docker-action" data-docker-cmd="restart" data-id="${id}" data-name="${escapeHTML(item.name || "")}">重启</button>`,
+          `<button class="btn sm danger docker-action" data-docker-cmd="stop" data-id="${id}" data-name="${escapeHTML(item.name || "")}">停止</button>`,
+        ]
+      : [
+          `<button class="btn sm docker-action" data-docker-cmd="start" data-id="${id}" data-name="${escapeHTML(item.name || "")}">启动</button>`,
+          `<button class="btn sm danger docker-action" data-docker-cmd="remove" data-id="${id}" data-name="${escapeHTML(item.name || "")}">删除</button>`,
+        ];
+    actions.push(`<button class="btn sm docker-action" data-docker-cmd="logs" data-id="${id}" data-name="${escapeHTML(item.name || "")}">日志</button>`);
+    actions.push(`<button class="btn sm docker-action" data-docker-cmd="inspect" data-id="${id}" data-name="${escapeHTML(item.name || "")}">详情</button>`);
+
+    return [
+      item.name || "-",
+      shorten(item.id || "-", 14),
+      item.image || "-",
+      statusHTML,
+      item.running_for || item.created_at || "-",
+      shorten(item.ports || "-", 42),
+      actions.join(" "),
+    ];
+  });
+
+  if (!rows.length) {
+    rows.push(["-", "-", "-", "<span class=\"badge unknown\">无数据</span>", "-", "-", "当前条件下没有容器"]);
+  }
+  renderTable("dockerContainerTable", ["容器名", "ID", "镜像", "状态", "运行时间", "端口映射", "操作"], rows, true);
+}
+
+function renderDockerKPIs(list) {
+  const items = Array.isArray(list) ? list : [];
+  let running = 0;
+  const imageSet = new Set();
+
+  for (const item of items) {
+    const state = String(item?.state || "").toLowerCase();
+    const status = String(item?.status || "").toLowerCase();
+    if (state === "running" || status.includes("up ")) {
+      running += 1;
+    }
+    const image = String(item?.image || "").trim();
+    if (image) imageSet.add(image);
+  }
+
+  const stopped = Math.max(0, items.length - running);
+  setText("dockerKpiTotal", num(items.length));
+  setText("dockerKpiRunning", num(running));
+  setText("dockerKpiStopped", num(stopped));
+  setText("dockerKpiImages", num(imageSet.size));
+}
+
+async function handleDockerTableClick(event) {
+  const btn = event.target.closest("button[data-docker-cmd]");
+  if (!btn) return;
+
+  const cmd = String(btn.dataset.dockerCmd || "").trim().toLowerCase();
+  const id = String(btn.dataset.id || "").trim();
+  const name = String(btn.dataset.name || "").trim() || id;
+  if (!cmd || !id) return;
+
+  if (cmd === "logs") {
+    try {
+      const res = await fetchWithTimeout(`/api/docker/containers/${encodeURIComponent(id)}/logs?tail=400`, 20000);
+      const data = await res.json();
+      if (!res.ok) {
+        showAppToast(data.error || "拉取容器日志失败", "error");
+        return;
+      }
+      openModal(`容器日志 - ${name}`, `<pre class="log-view compact">${escapeHTML(data.logs || "暂无日志")}</pre>`);
+    } catch (err) {
+      console.error("fetch container logs failed", err);
+      showAppToast("拉取容器日志失败", "error");
+    }
+    return;
+  }
+
+  if (cmd === "inspect") {
+    try {
+      const res = await fetchWithTimeout(`/api/docker/containers/${encodeURIComponent(id)}/inspect`, 20000);
+      const data = await res.json();
+      if (!res.ok) {
+        showAppToast(data.error || "拉取容器详情失败", "error");
+        return;
+      }
+      const text = JSON.stringify(data.inspect || {}, null, 2);
+      openModal(`容器详情 - ${name}`, `<pre class="log-view compact">${escapeHTML(text)}</pre>`);
+    } catch (err) {
+      console.error("fetch container inspect failed", err);
+      showAppToast("拉取容器详情失败", "error");
+    }
+    return;
+  }
+
+  try {
+    const res = await fetchWithTimeout(`/api/docker/containers/${encodeURIComponent(id)}/action`, 30000, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: cmd }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showAppToast(data.error || "容器操作失败", "error");
+      return;
+    }
+    showAppToast(`容器 ${name} ${cmd} 成功`, "success");
+    await loadDockerContainers(true);
+  } catch (err) {
+    console.error("docker action failed", err);
+    showAppToast("容器操作失败", "error");
+  }
+}
+
+function setCleanupScanRunning(running) {
+  const scanBtn = document.getElementById("cleanupScanBtn");
+  const stopScanBtn = document.getElementById("cleanupStopScanBtn");
+  const active = !!running;
+
+  if (scanBtn) {
+    scanBtn.dataset.running = active ? "1" : "0";
+    scanBtn.textContent = active ? "扫描中..." : "开始扫描";
+    scanBtn.disabled = active;
+  }
+  if (stopScanBtn) {
+    stopScanBtn.disabled = !active;
+  }
+}
+
+function setCleanupGarbageRunning(running) {
+  const previewBtn = document.getElementById("cleanupPreviewBtn");
+  const runBtn = document.getElementById("cleanupRunBtn");
+  const stopBtn = document.getElementById("cleanupStopGarbageBtn");
+  const active = !!running;
+
+  if (previewBtn) previewBtn.disabled = active;
+  if (runBtn) runBtn.disabled = active;
+  if (stopBtn) stopBtn.disabled = !active;
+}
+
+async function ensureCleanupMeta(force = false) {
+  if (!force && state.cleanupMeta) return state.cleanupMeta;
+
+  let data = null;
+  try {
+    const res = await fetchWithTimeout("/api/cleanup/meta", 15000);
+    data = await res.json();
+    if (!res.ok) {
+      showAppToast(data.error || "加载数据清理配置失败", "error");
+      return state.cleanupMeta;
+    }
+  } catch (err) {
+    console.error("ensure cleanup meta failed", err);
+    showAppToast("加载数据清理配置失败", "error");
+    return state.cleanupMeta;
+  }
+
+  state.cleanupMeta = data;
+  renderCleanupRootOptions(data.root_options || buildCleanupRootOptions(data.default_roots || [], data.os || ""));
+
+  const thresholdInput = document.getElementById("cleanupLargeThresholdGB");
+  if (thresholdInput && !String(thresholdInput.value || "").trim()) {
+    const gb = Number(data.default_large_file_size_bytes || 0) / 1024 / 1024 / 1024;
+    thresholdInput.value = gb > 0 ? gb.toFixed(0) : "1";
+  }
+
+  setCleanupIndexerTag(data.fast_indexer || null);
+  renderCleanupGarbageTargets(data.garbage_targets || []);
+  return data;
+}
+
+function setCleanupIndexerTag(indexer) {
+  const tag = document.getElementById("cleanupIndexerTag");
+  if (!tag) return;
+
+  const available = !!indexer?.available;
+  const name = String(indexer?.name || "内置引擎");
+  tag.classList.toggle("slow", !available);
+  tag.textContent = available ? `${name} 加速索引` : "内置扫描引擎";
+}
+
+function buildCleanupRootOptions(roots, goos) {
+  const list = Array.isArray(roots) ? roots.map((x) => String(x || "").trim()).filter(Boolean) : [];
+  if (!list.length) return [];
+
+  const osName = String(goos || "").trim().toLowerCase();
+  let selectedKey = "";
+  if (osName === "windows") {
+    selectedKey = list.find((x) => x.toLowerCase() === "c:\\") || list[0];
+  } else {
+    selectedKey = list.includes("/") ? "/" : list[0];
+  }
+
+  return list.map((path) => {
+    const isWin = osName === "windows";
+    let label = path;
+    if (isWin) {
+      const t = path.replace(/[\\/]+$/, "");
+      if (/^[a-z]:$/i.test(t)) label = `${t} Drive`;
+    }
+    const selected = isWin ? path.toLowerCase() === String(selectedKey).toLowerCase() : path === selectedKey;
+    return { path, label, selected };
+  });
+}
+
+function renderCleanupRootOptions(options) {
+  const box = document.getElementById("cleanupRootOptions");
+  if (!box) return;
+
+  const list = Array.isArray(options) ? options : [];
+  if (!list.length) {
+    box.innerHTML = '<span class="hint">未发现可用分区目录</span>';
+    return;
+  }
+
+  box.innerHTML = list
+    .map((item) => {
+      const path = String(item.path || "").trim();
+      if (!path) return "";
+      const label = String(item.label || path).trim();
+      const checked = item.selected ? "checked" : "";
+      return `<label title="${escapeHTML(path)}"><input type="checkbox" class="cleanup-root-item" value="${escapeHTML(path)}" ${checked}>${escapeHTML(label)}</label>`;
+    })
+    .join("");
+}
+
+function selectedCleanupRoots() {
+  return Array.from(document.querySelectorAll(".cleanup-root-item:checked"))
+    .map((node) => String(node.value || "").trim())
+    .filter(Boolean);
+}
+
+function cleanupThresholdBytes() {
+  const input = document.getElementById("cleanupLargeThresholdGB");
+  const gb = Number(String(input?.value || "").trim());
+  if (!Number.isFinite(gb) || gb <= 0) return 1024 ** 3;
+  return Math.round(gb * 1024 * 1024 * 1024);
+}
+
+async function runCleanupScan() {
+  if (state.cleanupScanAbortController) return;
+
+  const meta = await ensureCleanupMeta(false);
+  const effectiveRoots = selectedCleanupRoots();
+  if (!effectiveRoots.length) {
+    showAppToast("请至少选择一个扫描目录", "warning");
+    return;
+  }
+
+  const query = String(document.getElementById("cleanupSearch")?.value || "").trim();
+  const controller = new AbortController();
+  state.cleanupScanAbortController = controller;
+  const timeoutTimer = setTimeout(() => {
+    try {
+      controller.abort();
+    } catch (_) {
+      // ignore
+    }
+  }, 30 * 60 * 1000);
+
+  try {
+    setCleanupScanRunning(true);
+    setText("cleanupSummary", "正在扫描，请稍候...");
+
+    const res = await fetch("/api/cleanup/scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        roots: effectiveRoots,
+        query,
+        limit: Number(meta?.default_scan_limit || 12000),
+        large_file_size_bytes: cleanupThresholdBytes(),
+        large_limit: 5000,
+        summary_limit: Number(meta?.default_summary_limit || 200),
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showAppToast(data.error || "目录扫描失败", "error");
+      setText("cleanupSummary", "扫描失败");
+      return;
+    }
+
+    state.cleanupScan = data.scan || {};
+    applyCleanupFilterAndRender();
+
+    setCleanupIndexerTag(data.fast_indexer || meta?.fast_indexer || null);
+    showAppToast("扫描完成", "success");
+  } catch (err) {
+    if (err && err.name === "AbortError") {
+      setText("cleanupSummary", "扫描已停止");
+      showAppToast("扫描已停止", "info");
+      return;
+    }
+    console.error("cleanup scan failed", err);
+    showAppToast("目录扫描失败", "error");
+    setText("cleanupSummary", "扫描失败");
+  } finally {
+    clearTimeout(timeoutTimer);
+    if (state.cleanupScanAbortController === controller) {
+      state.cleanupScanAbortController = null;
+    }
+    setCleanupScanRunning(false);
+  }
+}
+
+function stopCleanupScan() {
+  const controller = state.cleanupScanAbortController;
+  if (!controller) {
+    showAppToast("当前没有进行中的扫描", "warning");
+    return;
+  }
+  try {
+    controller.abort();
+  } catch (_) {
+    // ignore
+  }
+}
+
+function stopCleanupGarbage() {
+  const controller = state.cleanupGarbageAbortController;
+  if (!controller) {
+    showAppToast("当前没有进行中的清理", "warning");
+    return;
+  }
+  try {
+    controller.abort();
+  } catch (_) {
+    // ignore
+  }
+}
+
+function applyCleanupFilterAndRender() {
+  const scan = state.cleanupScan || {};
+  const source = Array.isArray(scan.files) ? scan.files : [];
+  const query = String(document.getElementById("cleanupSearch")?.value || "").trim().toLowerCase();
+  const threshold = cleanupThresholdBytes();
+
+  const filtered = source
+    .filter((item) => {
+      if (!query) return true;
+      const path = String(item.path || "").toLowerCase();
+      const name = String(item.name || "").toLowerCase();
+      const type = String(item.type || "").toLowerCase();
+      return path.includes(query) || name.includes(query) || type.includes(query);
+    })
+    .sort((a, b) => Number(b.size || 0) - Number(a.size || 0));
+
+  const largeFiltered = filtered.filter((item) => Number(item.size || 0) >= threshold);
+
+  state.cleanupFilteredFiles = filtered;
+  state.cleanupFilteredLargeFiles = largeFiltered;
+
+  const fileRows = filtered.slice(0, 3000).map((item, idx) => [
+    idx + 1,
+    item.type || "-",
+    formatTimeValue(item.mod_time),
+    bytes(item.size || 0),
+    `${Number(item.size_ratio || 0).toFixed(2)}%`,
+    item.path || "-",
+  ]);
+  const largeRows = largeFiltered.slice(0, 3000).map((item, idx) => [
+    idx + 1,
+    item.type || "-",
+    formatTimeValue(item.mod_time),
+    bytes(item.size || 0),
+    `${Number(item.size_ratio || 0).toFixed(2)}%`,
+    item.path || "-",
+  ]);
+
+  renderTable("cleanupFileList", ["序号", "类型", "修改时间", "大小", "大小占比", "完整路径"], fileRows);
+  renderTable("cleanupLargeFileList", ["序号", "类型", "修改时间", "大小", "大小占比", "完整路径"], largeRows);
+  renderCleanupTopBars(filtered, Number(scan.matched_total_bytes || scan.total_bytes || 0));
+  renderCleanupSummaryTables(scan);
+  updateCleanupKpi(scan, filtered, largeFiltered, threshold);
+
+  const rootsText = (scan.roots || []).join(" , ") || "-";
+  const msg = [
+    `扫描目录: ${rootsText}`,
+    `已扫文件: ${num(scan.scanned_files || 0)}`,
+    `命中: ${num(scan.matched_files || 0)}`,
+    `耗时: ${num(scan.duration_ms || 0)}ms`,
+    `当前筛选: ${num(filtered.length)} 条`,
+    `大文件(>=${(threshold / 1024 / 1024 / 1024).toFixed(2)}GB): ${num(largeFiltered.length)} 条`,
+  ];
+  if (scan.truncated) msg.push("索引已按体积截断");
+  if (scan.cancelled) msg.push("扫描已停止");
+  if (Array.isArray(scan.errors) && scan.errors.length) msg.push(`权限/访问异常: ${scan.errors[0]}`);
+  setText("cleanupSummary", msg.join(" | "));
+}
+
+function updateCleanupKpi(scan, filtered, largeFiltered, thresholdBytes) {
+  setText("cleanupKpiScanned", num(scan.scanned_files || 0));
+  setText("cleanupKpiMatched", num(filtered.length));
+  setText("cleanupKpiSize", bytes(scan.matched_total_bytes || scan.total_bytes || 0));
+  setText("cleanupKpiLarge", num(largeFiltered.length));
+
+  const thresholdInput = document.getElementById("cleanupLargeThresholdGB");
+  if (thresholdInput) {
+    const gb = thresholdBytes / 1024 / 1024 / 1024;
+    thresholdInput.title = `当前大文件阈值 ${gb.toFixed(2)} GB`;
+  }
+}
+
+function renderCleanupTopBars(files, totalBytes) {
+  const box = document.getElementById("cleanupTopBars");
+  if (!box) return;
+
+  const list = Array.isArray(files) ? files.slice(0, 42) : [];
+  const base = Number(totalBytes || 0) > 0 ? Number(totalBytes) : Number(list.reduce((sum, x) => sum + Number(x.size || 0), 0));
+  if (!list.length || base <= 0) {
+    box.innerHTML = '<p class="hint">扫描完成后显示体积热区</p>';
+    return;
+  }
+
+  box.innerHTML = list
+    .map((item) => {
+      const size = Number(item.size || 0);
+      const ratio = Math.max(0.2, Math.min(100, (size * 100) / base));
+      const p = String(item.path || "-");
+      return `
+        <div class="cleanup-bar-item" title="${escapeHTML(p)}">
+          <div class="cleanup-bar-fill" style="width:${ratio.toFixed(2)}%"></div>
+          <div class="cleanup-bar-text">
+            <span class="cleanup-bar-path">${escapeHTML(p)}</span>
+            <span>${escapeHTML(bytes(size))}</span>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function renderCleanupSummaryTables(scan) {
+  const dirRows = (Array.isArray(scan.directory_summary) ? scan.directory_summary : []).slice(0, 200).map((item) => [
+    item.path || "-",
+    num(item.file_count || 0),
+    bytes(item.size || 0),
+    `${Number(item.size_ratio || 0).toFixed(2)}%`,
+  ]);
+  renderTable("cleanupDirSummaryList", ["目录", "文件数", "占用", "占比"], dirRows);
+
+  const typeRows = (Array.isArray(scan.type_summary) ? scan.type_summary : []).slice(0, 200).map((item) => [
+    item.type || "none",
+    num(item.file_count || 0),
+    bytes(item.size || 0),
+    `${Number(item.size_ratio || 0).toFixed(2)}%`,
+  ]);
+  renderTable("cleanupTypeSummaryList", ["类型", "文件数", "占用", "占比"], typeRows);
+}
+
+function renderCleanupGarbageTargets(targets) {
+  const box = document.getElementById("cleanupGarbageTargets");
+  if (!box) return;
+
+  const list = Array.isArray(targets) ? targets : [];
+  if (!list.length) {
+    box.innerHTML = '<span class="hint">暂无可用清理目标</span>';
+    return;
+  }
+
+  box.innerHTML = list
+    .map((item) => {
+      const checked = item.enabled ? "checked" : "";
+      const disabled = item.exists ? "" : "disabled";
+      const title = `${item.name} (${item.path})`;
+      return `<label title="${escapeHTML(title)}"><input type="checkbox" class="cleanup-target-item" value="${escapeHTML(item.id)}" ${checked} ${disabled}>${escapeHTML(item.name)} [保留${num(item.keep_hours || 0)}h]</label>`;
+    })
+    .join("");
+}
+
+function selectedCleanupTargetIDs() {
+  return Array.from(document.querySelectorAll(".cleanup-target-item:checked"))
+    .map((node) => String(node.value || "").trim())
+    .filter(Boolean);
+}
+
+async function runGarbageCleanup(dryRun) {
+  if (state.cleanupGarbageAbortController) return;
+
+  const meta = await ensureCleanupMeta(false);
+  if (!meta) return;
+
+  const targetIDs = selectedCleanupTargetIDs();
+  if (!targetIDs.length) {
+    showAppToast("请至少勾选一个清理目标", "warning");
+    return;
+  }
+
+  if (!dryRun) {
+    const ok = confirm("将按安全策略删除目标目录中的旧缓存/临时/日志文件，是否继续？");
+    if (!ok) return;
+  }
+
+  const controller = new AbortController();
+  state.cleanupGarbageAbortController = controller;
+  const timeoutTimer = setTimeout(() => {
+    try {
+      controller.abort();
+    } catch (_) {
+      // ignore
+    }
+  }, 10 * 60 * 1000);
+
+  try {
+    setCleanupGarbageRunning(true);
+    setText("cleanupGarbageSummary", dryRun ? "正在预估可清理文件..." : "正在执行清理...");
+
+    const res = await fetch("/api/cleanup/garbage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        target_ids: targetIDs,
+        dry_run: dryRun,
+        limit: Number(meta.default_garbage_limit || 5000),
+      }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      showAppToast(data.error || "清理执行失败", "error");
+      setText("cleanupGarbageSummary", "清理失败");
+      return;
+    }
+
+    renderCleanupGarbageResult(data);
+    const summary = [
+      dryRun ? "预估完成" : "清理完成",
+      `候选: ${num(data.total_candidate_files || 0)} 文件`,
+      `候选体积: ${bytes(data.total_candidate_bytes || 0)}`,
+      `已清理: ${num(data.total_deleted_files || 0)} 文件`,
+      `已清理体积: ${bytes(data.total_deleted_bytes || 0)}`,
+      `失败: ${num(data.total_failed_files || 0)}`,
+    ];
+    if (data.cancelled) summary.push("操作已停止");
+    setText("cleanupGarbageSummary", summary.join(" | "));
+
+    if (dryRun) {
+      showAppToast("预估完成", "success");
+      return;
+    }
+
+    showAppToast(`清理完成，已删除 ${num(data.total_deleted_files || 0)} 个文件`, "success");
+    if (state.cleanupScan) {
+      runCleanupScan();
+    }
+  } catch (err) {
+    if (err && err.name === "AbortError") {
+      setText("cleanupGarbageSummary", "清理已停止");
+      showAppToast("清理已停止", "info");
+      return;
+    }
+    console.error("cleanup garbage failed", err);
+    showAppToast("清理执行失败", "error");
+    setText("cleanupGarbageSummary", "清理失败");
+  } finally {
+    clearTimeout(timeoutTimer);
+    if (state.cleanupGarbageAbortController === controller) {
+      state.cleanupGarbageAbortController = null;
+    }
+    setCleanupGarbageRunning(false);
+  }
+}
+
+function renderCleanupGarbageResult(data) {
+  const items = Array.isArray(data?.targets) ? data.targets : [];
+  const rows = items.map((item) => [
+    item.name || item.id || "-",
+    num(item.candidate_files || 0),
+    bytes(item.candidate_bytes || 0),
+    num(item.deleted_files || 0),
+    bytes(item.deleted_bytes || 0),
+    num(item.failed_files || 0),
+    item.path || "-",
+  ]);
+  renderTable("cleanupGarbageResult", ["目标", "候选文件", "候选体积", "已清理文件", "已清理体积", "失败数", "目录"], rows);
+}
 function bindModal() {
   document.getElementById("modalCloseBtn").addEventListener("click", closeModal);
   document.getElementById("modalMask").addEventListener("click", (event) => {
@@ -712,26 +1498,127 @@ function startMonitorLoop() {
   if (state.monitorTimer) clearInterval(state.monitorTimer);
   const sec = state.config?.monitor?.refresh_seconds || 5;
   state.monitorTimer = setInterval(() => {
-    if (!state.monitorPaused) refreshMonitor();
+    if (state.monitorPaused) return;
+    if (state.monitorWSConnected) return;
+    refreshMonitor();
   }, sec * 1000);
+}
+
+function applyMonitorSnapshot(data) {
+  if (!data || typeof data !== "object") return;
+  state.monitorSnapshot = data;
+  state.combinedProcesses = mergeProcessList(data.top_processes || [], data.jvm || []);
+  renderMonitor(data);
 }
 
 async function refreshMonitor(strict = false) {
   try {
-    const res = await fetchWithTimeout("/api/monitor", 12000);
+    const res = await fetchWithTimeout("/api/monitor", 45000);
     if (!res.ok) {
       throw new Error(`monitor status ${res.status}`);
     }
     const data = await res.json();
-    state.monitorSnapshot = data;
-    state.combinedProcesses = mergeProcessList(data.top_processes || [], data.jvm || []);
-    renderMonitor(data);
+    applyMonitorSnapshot(data);
     return data;
   } catch (err) {
     if (strict) throw err;
     console.error("refresh monitor failed", err);
     return null;
   }
+}
+
+function monitorWSURL() {
+  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+  return `${protocol}://${window.location.host}/ws/monitor`;
+}
+
+function startMonitorSocket() {
+  if (state.monitorPaused) return;
+  if (state.monitorWS) return;
+
+  let ws;
+  try {
+    ws = new WebSocket(monitorWSURL());
+  } catch (err) {
+    console.error("create monitor websocket failed", err);
+    scheduleMonitorSocketReconnect();
+    return;
+  }
+
+  state.monitorWS = ws;
+  ws.addEventListener("open", () => {
+    state.monitorWSConnected = true;
+    state.monitorWSRetryAttempt = 0;
+    if (state.monitorWSRetryTimer) {
+      clearTimeout(state.monitorWSRetryTimer);
+      state.monitorWSRetryTimer = null;
+    }
+  });
+
+  ws.addEventListener("message", (event) => {
+    handleMonitorSocketMessage(event.data);
+  });
+
+  ws.addEventListener("error", (event) => {
+    console.error("monitor websocket error", event);
+  });
+
+  ws.addEventListener("close", () => {
+    const hadConnection = state.monitorWSConnected;
+    state.monitorWSConnected = false;
+    state.monitorWS = null;
+    if (state.monitorPaused) return;
+    if (hadConnection) {
+      refreshMonitor();
+    }
+    scheduleMonitorSocketReconnect();
+  });
+}
+
+function scheduleMonitorSocketReconnect() {
+  if (state.monitorPaused) return;
+  if (state.monitorWS || state.monitorWSRetryTimer) return;
+
+  const attempt = (state.monitorWSRetryAttempt || 0) + 1;
+  state.monitorWSRetryAttempt = attempt;
+  const delay = Math.min(MONITOR_WS_RETRY_MAX_MS, Math.round(MONITOR_WS_RETRY_BASE_MS * 1.5 ** (attempt - 1)));
+  state.monitorWSRetryTimer = setTimeout(() => {
+    state.monitorWSRetryTimer = null;
+    startMonitorSocket();
+  }, delay);
+}
+
+function stopMonitorSocket() {
+  if (state.monitorWSRetryTimer) {
+    clearTimeout(state.monitorWSRetryTimer);
+    state.monitorWSRetryTimer = null;
+  }
+  const ws = state.monitorWS;
+  state.monitorWS = null;
+  state.monitorWSConnected = false;
+  if (!ws) return;
+  if (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN) {
+    try {
+      ws.close(1000, "monitor paused");
+    } catch (err) {
+      console.error("close monitor websocket failed", err);
+    }
+  }
+}
+
+function handleMonitorSocketMessage(raw) {
+  if (state.monitorPaused) return;
+
+  let payload;
+  try {
+    payload = JSON.parse(raw);
+  } catch (err) {
+    console.error("parse monitor websocket message failed", err);
+    return;
+  }
+
+  if (!payload || payload.type !== "snapshot" || !payload.data) return;
+  applyMonitorSnapshot(payload.data);
 }
 
 function renderMonitor(data) {
@@ -780,7 +1667,7 @@ function renderMonitor(data) {
 
   const diskIoFlowEl = document.getElementById("diskIoFlow");
   if (diskIoFlowEl) {
-    diskIoFlowEl.innerHTML = `读 ${bytes(summaryRate.readBytesRate)}/秒<br/>写 ${bytes(summaryRate.writeBytesRate)}/秒`;
+    diskIoFlowEl.innerHTML = `读 ${rateBytes(summaryRate.readBytesRate)}/秒<br/>写 ${rateBytes(summaryRate.writeBytesRate)}/秒`;
   }
   const diskCount = Number((data.disk_hardware || []).length || (data.disks || []).length || 0);
   setText(
@@ -816,8 +1703,8 @@ function renderMonitor(data) {
           `<span class="disk-usage-tag ${usageClass}">${fixed(usage)}%</span>`,
           `<span class="disk-health-tag ${usageClass}">${usageText}</span>`,
           `${bytes(x.used)} / ${bytes(x.total)}`,
-          `${bytes(rate.readBytesRate)}/秒`,
-          `${bytes(rate.writeBytesRate)}/秒`,
+          `${rateBytes(rate.readBytesRate)}/秒`,
+          `${rateBytes(rate.writeBytesRate)}/秒`,
           `${fixed(rate.readOpsRate)}次/秒`,
           `${fixed(rate.writeOpsRate)}次/秒`,
         ],
@@ -962,7 +1849,7 @@ function renderTrendCards() {
     }
     const latest = points[points.length - 1].value;
     const highest = Math.max(...points.map((p) => Number(p.value || 0)));
-    info.textContent = `最新 ${cfg.format(latest)} | 最高 ${cfg.format(highest)}`;
+    info.textContent = `近${TREND_MINI_HOURS}小时 最新 ${cfg.format(latest)} | 最高 ${cfg.format(highest)}`;
   });
 }
 
@@ -2071,25 +2958,31 @@ function renderSystemInfo(snapshot) {
   const data = snapshot || {};
   const info = data.os || {};
   const network = data.network || {};
+  const disks = Array.isArray(data.disks) ? data.disks : [];
   const diskHardware = Array.isArray(data.disk_hardware) ? data.disk_hardware : [];
   const cpu = data.cpu || {};
   const memory = data.memory || {};
 
+  const osName = String(info.os_type || info.platform || "-").trim() || "-";
+  const osVersion = String(info.version || "-").trim() || "-";
+  const osDisplay = `${osName}\n${osVersion}`;
+  const architecture = String(cpu.architecture || "-").trim() || "-";
   const diskSerial = resolvePrimaryDiskSerial(diskHardware);
-  const resource = resolveResourceSummary(cpu, memory);
+  const resource = resolveResourceSummary(cpu, memory, disks, diskHardware);
   const items = [
     {
       label: "操作系统",
-      value: String(info.os_type || info.platform || "-"),
-      full: String(info.os_type || info.platform || "-"),
+      value: osDisplay,
+      full: osDisplay,
+      multiline: true,
     },
     {
-      label: "系统版本",
-      value: String(info.version || "-"),
-      full: String(info.version || "-"),
+      label: "系统架构",
+      value: architecture,
+      full: architecture,
     },
     {
-      label: "网络 IP",
+      label: "网络IP",
       value: String(network.primary_ip || "-"),
       full: String(network.primary_ip || "-"),
     },
@@ -2106,21 +2999,23 @@ function renderSystemInfo(snapshot) {
   ];
 
   box.innerHTML = items
-    .map(
-      (x) => `
+    .map((x) => {
+      const valueClass = x.multiline ? "system-info-value multiline" : "system-info-value";
+      const fullText = `${x.label}：${String(x.full || "-").replace(/\n/g, " / ")}`;
+      return `
       <div
         class="system-info-item"
         role="button"
         tabindex="0"
         data-copy="${escapeHTML(x.full)}"
-        data-full="${escapeHTML(`${x.label}：${x.full}`)}"
-        title="${escapeHTML(`${x.label}：${x.full}`)}"
+        data-full="${escapeHTML(fullText)}"
+        title="${escapeHTML(fullText)}"
       >
         <span class="system-info-label">${escapeHTML(x.label)}</span>
-        <span class="system-info-value" title="${escapeHTML(x.full)}">${escapeHTML(x.value)}</span>
+        <span class="${valueClass}" title="${escapeHTML(x.full)}">${escapeHTML(x.value)}</span>
       </div>
-    `,
-    )
+    `;
+    })
     .join("");
 }
 
@@ -2128,19 +3023,69 @@ function resolvePrimaryDiskSerial(items) {
   const list = Array.isArray(items) ? items : [];
   for (const item of list) {
     const serial = String(item?.serial || "").trim();
-    if (serial) return serial;
+    const normalized = serial.toLowerCase();
+    if (!serial) continue;
+    if (["-", "unknown", "none", "null", "(null)", "n/a"].includes(normalized)) continue;
+    return serial;
   }
   return "-";
 }
 
-function resolveResourceSummary(cpu, memory) {
+function resolveResourceSummary(cpu, memory, disks, diskHardware) {
+  const parts = [];
   const core = Number(cpu?.core_count || 0);
-  const total = Number(memory?.total || 0);
-  const gb = total > 0 ? Math.ceil(total / 1024 / 1024 / 1024) : 0;
-  if (core > 0 && gb > 0) return `${num(core)}核${num(gb)}G`;
-  if (core > 0) return `${num(core)}核`;
-  if (gb > 0) return `${num(gb)}G`;
-  return "-";
+  if (core > 0) {
+    parts.push(`${num(core)}核心`);
+  }
+
+  const memoryGB = toRoundedGB(memory?.total || 0);
+  if (memoryGB > 0) {
+    parts.push(`${num(memoryGB)}GB内存`);
+  }
+
+  const totalStorageBytes = resolveTotalStorageBytes(disks, diskHardware);
+  const storageGB = toRoundedGB(totalStorageBytes);
+  if (storageGB > 0) {
+    parts.push(`${num(storageGB)}GB存储`);
+  }
+
+  return parts.length ? parts.join(" ") : "-";
+}
+
+function resolveTotalStorageBytes(disks, diskHardware) {
+  const hardwareList = Array.isArray(diskHardware) ? diskHardware : [];
+  if (hardwareList.length) {
+    const seen = new Set();
+    let total = 0;
+    for (const item of hardwareList) {
+      const size = Number(item?.size || 0);
+      if (!Number.isFinite(size) || size <= 0) continue;
+      const key = `${String(item?.name || "").trim()}|${size}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      total += size;
+    }
+    if (total > 0) return total;
+  }
+
+  const diskList = Array.isArray(disks) ? disks : [];
+  const seen = new Set();
+  let total = 0;
+  for (const item of diskList) {
+    const size = Number(item?.total || 0);
+    if (!Number.isFinite(size) || size <= 0) continue;
+    const key = `${String(item?.device || item?.path || "").trim()}|${size}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    total += size;
+  }
+  return total;
+}
+
+function toRoundedGB(bytesValue) {
+  const n = Number(bytesValue || 0);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.max(1, Math.round(n / 1024 / 1024 / 1024));
 }
 
 async function copySystemInfoCard(card) {
@@ -2602,6 +3547,16 @@ function bytes(v) {
   return `${(n / 1024 ** 4).toFixed(1)} TB`;
 }
 
+function rateBytes(v) {
+  const n = Number(v || 0);
+  if (!Number.isFinite(n) || n <= 0) return "0.00 B";
+  if (n < 1024) return `${n.toFixed(2)} B`;
+  if (n < 1024 ** 2) return `${(n / 1024).toFixed(2)} KB`;
+  if (n < 1024 ** 3) return `${(n / 1024 ** 2).toFixed(2)} MB`;
+  if (n < 1024 ** 4) return `${(n / 1024 ** 3).toFixed(2)} GB`;
+  return `${(n / 1024 ** 4).toFixed(2)} TB`;
+}
+
 function num(v) {
   return Number(v || 0).toLocaleString();
 }
@@ -2724,3 +3679,4 @@ function escapeHTML(raw) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 }
+

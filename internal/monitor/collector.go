@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -256,18 +257,38 @@ func gatherMemory(meta staticHardwareMeta) MemoryInfo {
 }
 
 func gatherDisks() []DiskInfo {
-	parts, _ := disk.Partitions(false)
+	parts, _ := disk.Partitions(runtime.GOOS == "linux")
 	ioStats, _ := disk.IOCounters()
 	out := make([]DiskInfo, 0, len(parts))
+	seenMount := make(map[string]struct{}, len(parts))
 	for _, p := range parts {
-		u, err := disk.Usage(p.Mountpoint)
+		if shouldSkipPartition(p) {
+			continue
+		}
+		mountpoint := strings.TrimSpace(p.Mountpoint)
+		if mountpoint == "" {
+			continue
+		}
+		key := strings.ToLower(mountpoint)
+		if _, ok := seenMount[key]; ok {
+			continue
+		}
+		u, err := disk.Usage(mountpoint)
 		if err != nil {
 			continue
 		}
-		io := matchDiskIO(ioStats, p.Device, p.Mountpoint)
+		if u.Total == 0 {
+			continue
+		}
+		seenMount[key] = struct{}{}
+		io := matchDiskIO(ioStats, p.Device, mountpoint)
+		device := strings.TrimSpace(p.Device)
+		if device == "" {
+			device = "-"
+		}
 		out = append(out, DiskInfo{
-			Path:        p.Mountpoint,
-			Device:      p.Device,
+			Path:        mountpoint,
+			Device:      device,
 			FSType:      p.Fstype,
 			Total:       u.Total,
 			Used:        u.Used,
@@ -282,6 +303,51 @@ func gatherDisks() []DiskInfo {
 		return out[i].Path < out[j].Path
 	})
 	return out
+}
+
+func shouldSkipPartition(p disk.PartitionStat) bool {
+	if runtime.GOOS != "linux" {
+		return false
+	}
+
+	mp := strings.TrimSpace(p.Mountpoint)
+	if mp == "" {
+		return true
+	}
+	if mp == "/proc" || strings.HasPrefix(mp, "/proc/") {
+		return true
+	}
+	if mp == "/sys" || strings.HasPrefix(mp, "/sys/") {
+		return true
+	}
+	if mp == "/dev" || strings.HasPrefix(mp, "/dev/pts") {
+		return true
+	}
+
+	fsType := strings.ToLower(strings.TrimSpace(p.Fstype))
+	switch fsType {
+	case "proc",
+		"sysfs",
+		"devpts",
+		"securityfs",
+		"cgroup",
+		"cgroup2",
+		"pstore",
+		"bpf",
+		"tracefs",
+		"configfs",
+		"debugfs",
+		"mqueue",
+		"hugetlbfs",
+		"fusectl",
+		"rpc_pipefs",
+		"autofs",
+		"binfmt_misc",
+		"nsfs":
+		return true
+	default:
+		return false
+	}
 }
 
 func gatherDiskIOSummary() DiskIOSummary {

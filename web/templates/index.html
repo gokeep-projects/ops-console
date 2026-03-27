@@ -4,7 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{{ .Title }}</title>
-  <link rel="stylesheet" href="/static/app.css?v=20260327-62" />
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v=20260327-icon1" />
+  <link rel="stylesheet" href="/static/app.css?v=20260327-69" />
 </head>
 <body class="booting">
   <div id="bootOverlay" class="boot-overlay">
@@ -86,6 +87,30 @@
           </svg>
         </span>
         <span class="menu-label">数据备份</span>
+      </button>
+      <button class="menu" type="button" data-section="cleanup" title="数据清理" aria-label="数据清理">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none">
+            <path d="M3.5 4h9" />
+            <path d="M5.5 4V3a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1" />
+            <path d="M4.5 4.5l.6 8a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-8" />
+            <path d="M6.7 7v4.2" />
+            <path d="M9.3 7v4.2" />
+          </svg>
+        </span>
+        <span class="menu-label">数据清理</span>
+      </button>
+      <button class="menu" type="button" data-section="docker" title="Docker管理" aria-label="Docker管理">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none">
+            <rect x="2.5" y="6.5" width="3" height="3" />
+            <rect x="6.5" y="6.5" width="3" height="3" />
+            <rect x="10.5" y="6.5" width="3" height="3" />
+            <rect x="4.5" y="2.5" width="3" height="3" />
+            <path d="M2.2 10.5h11.6c0 1.7-1.3 3-3 3H5.2c-1.7 0-3-1.3-3-3Z" />
+          </svg>
+        </span>
+        <span class="menu-label">Docker管理</span>
       </button>
     </aside>
 
@@ -379,6 +404,139 @@
           <div id="backupList" class="table"></div>
         </article>
       </section>
+
+      <section id="cleanup" class="panel cleanup-panel">
+        <article class="card cleanup-toolbar-card">
+          <div class="cleanup-toolbar">
+            <div class="cleanup-toolbar-title">
+              <h3>数据清理 / 空间分析</h3>
+              <span id="cleanupIndexerTag" class="cleanup-indexer-tag">内置扫描引擎</span>
+            </div>
+            <div class="cleanup-toolbar-ops">
+              <button id="cleanupLoadRootsBtn" class="btn sm" type="button">刷新分区</button>
+              <button id="cleanupScanBtn" class="btn sm" type="button">开始扫描</button>
+              <button id="cleanupStopScanBtn" class="btn sm danger" type="button" disabled>停止扫描</button>
+            </div>
+          </div>
+          <div class="cleanup-filter-row">
+            <div id="cleanupRootOptions" class="selector cleanup-root-options"></div>
+          </div>
+          <div class="cleanup-filter-row compact">
+            <input id="cleanupSearch" class="input" placeholder="模糊搜索：文件名 / 路径 / 文件类型" />
+            <input id="cleanupLargeThresholdGB" class="input sm" value="1" />
+            <button id="cleanupApplyFilterBtn" class="btn sm" type="button">应用筛选</button>
+          </div>
+          <div class="cleanup-kpi-grid">
+            <div class="cleanup-kpi-card">
+              <div class="cleanup-kpi-label">已扫描文件</div>
+              <div id="cleanupKpiScanned" class="cleanup-kpi-value">0</div>
+            </div>
+            <div class="cleanup-kpi-card">
+              <div class="cleanup-kpi-label">当前命中</div>
+              <div id="cleanupKpiMatched" class="cleanup-kpi-value">0</div>
+            </div>
+            <div class="cleanup-kpi-card">
+              <div class="cleanup-kpi-label">命中总大小</div>
+              <div id="cleanupKpiSize" class="cleanup-kpi-value">0 B</div>
+            </div>
+            <div class="cleanup-kpi-card">
+              <div class="cleanup-kpi-label">大文件数量</div>
+              <div id="cleanupKpiLarge" class="cleanup-kpi-value">0</div>
+            </div>
+          </div>
+          <p id="cleanupSummary" class="hint">未开始扫描</p>
+        </article>
+
+        <div class="cleanup-main-grid">
+          <article class="card cleanup-card-main">
+            <div class="card-head">
+              <h3>体积热区（WizTree 风格）</h3>
+            </div>
+            <div id="cleanupTopBars" class="cleanup-bars-view"></div>
+            <div id="cleanupFileList" class="table"></div>
+          </article>
+          <div class="cleanup-side-column">
+            <article class="card">
+              <div class="card-head">
+                <h3>大文件（按大小降序）</h3>
+              </div>
+              <div id="cleanupLargeFileList" class="table"></div>
+            </article>
+            <article class="card">
+              <div class="card-head">
+                <h3>目录占用排行</h3>
+              </div>
+              <div id="cleanupDirSummaryList" class="table"></div>
+            </article>
+            <article class="card">
+              <div class="card-head">
+                <h3>文件类型分布</h3>
+              </div>
+              <div id="cleanupTypeSummaryList" class="table"></div>
+            </article>
+          </div>
+        </div>
+
+        <article class="card cleanup-garbage-card">
+          <div class="card-head">
+            <h3>垃圾清理（安全模式）</h3>
+            <div class="ops">
+              <button id="cleanupPreviewBtn" class="btn sm" type="button">预估可清理</button>
+              <button id="cleanupRunBtn" class="btn sm danger" type="button">执行清理</button>
+              <button id="cleanupStopGarbageBtn" class="btn sm" type="button" disabled>停止清理</button>
+            </div>
+          </div>
+          <p class="hint">仅清理缓存 / 临时 / 日志类旧文件，并保留近期文件，避免影响系统运行。</p>
+          <div id="cleanupGarbageTargets" class="selector"></div>
+          <p id="cleanupGarbageSummary" class="hint">未开始清理</p>
+          <div id="cleanupGarbageResult" class="table"></div>
+        </article>
+      </section>
+
+      <section id="docker" class="panel docker-panel">
+        <article class="card docker-hero-card">
+          <div class="docker-hero-head">
+            <div>
+              <h3>Docker 管理中心</h3>
+              <p id="dockerStatusSummary" class="hint docker-status-summary">未加载 Docker 状态</p>
+            </div>
+            <div class="docker-hero-badge">Container Ops</div>
+          </div>
+          <div class="docker-kpi-grid">
+            <div class="docker-kpi-card total">
+              <span>容器总数</span>
+              <strong id="dockerKpiTotal">0</strong>
+            </div>
+            <div class="docker-kpi-card running">
+              <span>运行中</span>
+              <strong id="dockerKpiRunning">0</strong>
+            </div>
+            <div class="docker-kpi-card stopped">
+              <span>已停止</span>
+              <strong id="dockerKpiStopped">0</strong>
+            </div>
+            <div class="docker-kpi-card image">
+              <span>镜像数量</span>
+              <strong id="dockerKpiImages">0</strong>
+            </div>
+          </div>
+        </article>
+
+        <article class="card docker-table-card">
+          <div class="card-head">
+            <h3>容器列表</h3>
+            <div class="ops">
+              <input id="dockerSearch" class="input" placeholder="搜索容器名 / 镜像 / ID / 状态" />
+              <select id="dockerScope" class="input sm">
+                <option value="all">全部容器</option>
+                <option value="running">仅运行中</option>
+              </select>
+              <button id="dockerRefreshBtn" class="btn sm" type="button">刷新容器</button>
+            </div>
+          </div>
+          <div id="dockerContainerTable" class="table"></div>
+        </article>
+      </section>
     </main>
   </div>
 
@@ -392,6 +550,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=20260327-64"></script>
+  <script src="/static/app.js?v=20260327-69"></script>
 </body>
 </html>

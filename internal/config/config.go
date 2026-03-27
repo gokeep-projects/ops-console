@@ -172,34 +172,49 @@ func LoadOrCreate(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parse yaml failed: %w", err)
 	}
+	changed := false
 	if cfg.Monitor.RefreshSeconds <= 0 {
 		cfg.Monitor.RefreshSeconds = 5
+		changed = true
 	}
 	if cfg.Monitor.SNMP.TimeoutSeconds <= 0 {
 		cfg.Monitor.SNMP.TimeoutSeconds = 1
+		changed = true
 	}
 	if cfg.Monitor.SNMP.Retries < 0 {
 		cfg.Monitor.SNMP.Retries = 0
+		changed = true
 	}
 	if cfg.Monitor.Nmap.TimeoutSeconds <= 0 {
 		cfg.Monitor.Nmap.TimeoutSeconds = 6
+		changed = true
 	}
 	if cfg.Monitor.Nmap.NmapBinary == "" {
 		cfg.Monitor.Nmap.NmapBinary = "nmap"
+		changed = true
 	}
 	if cfg.Monitor.Nmap.TopPorts <= 0 {
 		cfg.Monitor.Nmap.TopPorts = 50
+		changed = true
 	}
 	if cfg.LogAnalysis.MaxLines <= 0 {
 		cfg.LogAnalysis.MaxLines = 2000
+		changed = true
+	}
+	if stripLegacyDefaultExampleApp(cfg) {
+		changed = true
 	}
 	if EnsureLogSources(cfg) {
+		changed = true
+	}
+	if cfg.Core.Web.Listen == "" {
+		cfg.Core.Web.Listen = "0.0.0.0:18082"
+		changed = true
+	}
+	if changed {
 		if err := Save(path, cfg); err != nil {
 			return nil, err
 		}
-	}
-	if cfg.Core.Web.Listen == "" {
-		cfg.Core.Web.Listen = "127.0.0.1:18081"
 	}
 	return cfg, nil
 }
@@ -219,7 +234,7 @@ func DefaultConfig() *Config {
 	cfg := &Config{
 		Core: CoreConfig{
 			Web: WebConfig{
-				Listen: "127.0.0.1:18081",
+				Listen: "0.0.0.0:18082",
 			},
 			SQLite: SQLiteConfig{
 				Path:     "data/ops-tool.db",
@@ -262,17 +277,7 @@ func DefaultConfig() *Config {
 				Targets:        []string{"127.0.0.1"},
 			},
 		},
-		Applications: []Application{
-			{
-				Name:         "example-api",
-				Type:         "go-service",
-				Enabled:      true,
-				ProcessNames: []string{"example-api"},
-				Ports:        []int{8080},
-				HealthURL:    "http://127.0.0.1:8080/health",
-				LogFiles:     []string{"logs/example-api/info.log", "logs/example-api/error.log"},
-			},
-		},
+		Applications: []Application{},
 		LogAnalysis: LogAnalysisConfig{
 			EnableRealtime: true,
 			MaxLines:       2000,
@@ -426,6 +431,71 @@ func dedupeLogSourcesByName(items []LogSource) []LogSource {
 		out = append(out, item)
 	}
 	return out
+}
+
+func stripLegacyDefaultExampleApp(cfg *Config) bool {
+	if cfg == nil || len(cfg.Applications) != 1 {
+		return false
+	}
+	app := cfg.Applications[0]
+	if !isLegacyDefaultExampleApp(app) {
+		return false
+	}
+	cfg.Applications = []Application{}
+	if len(cfg.LogAnalysis.Sources) > 0 {
+		filtered := make([]LogSource, 0, len(cfg.LogAnalysis.Sources))
+		for _, src := range cfg.LogAnalysis.Sources {
+			if isLegacyDefaultExampleSource(src) {
+				continue
+			}
+			filtered = append(filtered, src)
+		}
+		cfg.LogAnalysis.Sources = filtered
+	}
+	return true
+}
+
+func isLegacyDefaultExampleApp(app Application) bool {
+	if strings.TrimSpace(app.Name) != "example-api" {
+		return false
+	}
+	if strings.TrimSpace(app.Type) != "go-service" {
+		return false
+	}
+	if !app.Enabled {
+		return false
+	}
+	if len(app.ProcessNames) != 1 || strings.TrimSpace(app.ProcessNames[0]) != "example-api" {
+		return false
+	}
+	if len(app.Ports) != 1 || app.Ports[0] != 8080 {
+		return false
+	}
+	healthURL := strings.TrimSpace(app.HealthURL)
+	if healthURL != "" && healthURL != "http://127.0.0.1:8080/health" {
+		return false
+	}
+	if len(app.LogFiles) != 2 {
+		return false
+	}
+	logA := strings.TrimSpace(app.LogFiles[0])
+	logB := strings.TrimSpace(app.LogFiles[1])
+	return logA == "logs/example-api/info.log" && logB == "logs/example-api/error.log"
+}
+
+func isLegacyDefaultExampleSource(src LogSource) bool {
+	if strings.TrimSpace(src.Name) != "example-api" {
+		return false
+	}
+	if strings.TrimSpace(src.Type) != "app-log" {
+		return false
+	}
+	if len(src.LogFiles) != 2 {
+		return false
+	}
+	logA := strings.TrimSpace(src.LogFiles[0])
+	logB := strings.TrimSpace(src.LogFiles[1])
+	return logA == "logs/example-api/info.log" && logB == "logs/example-api/error.log"
 }
 
 func (c *Config) FindLogSource(name string) (LogSource, bool) {
