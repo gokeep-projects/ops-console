@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{{ .Title }}</title>
   <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v=20260327-icon1" />
-  <link rel="stylesheet" href="/static/app.css?v=20260327-69" />
+  <link rel="stylesheet" href="/static/app.css?v=20260327-70" />
 </head>
 <body class="booting">
   <div id="bootOverlay" class="boot-overlay">
@@ -16,6 +16,25 @@
         <div id="bootBar" class="boot-bar"></div>
       </div>
       <p id="bootPercent" class="boot-percent">0%</p>
+    </div>
+  </div>
+
+  <div id="authOverlay" class="auth-overlay hidden">
+    <div class="auth-card">
+      <h2>登录 OPS 运维平台</h2>
+      <p>请输入配置文件中的账号密码</p>
+      <form id="authLoginForm" class="auth-form" autocomplete="off">
+        <label>
+          <span>用户名</span>
+          <input id="authUsername" class="input" type="text" name="username" autocomplete="username" placeholder="请输入用户名" />
+        </label>
+        <label>
+          <span>密码</span>
+          <input id="authPassword" class="input" type="password" name="password" autocomplete="current-password" placeholder="请输入密码" />
+        </label>
+        <button class="btn" type="submit">登 录</button>
+      </form>
+      <p id="authMessage" class="auth-message info">请输入账号密码登录</p>
     </div>
   </div>
 
@@ -421,6 +440,11 @@
           <div class="cleanup-filter-row">
             <div id="cleanupRootOptions" class="selector cleanup-root-options"></div>
           </div>
+          <div class="cleanup-filter-row">
+            <input id="cleanupCustomRoot" class="input" placeholder="自定义扫描目录（绝对路径），例如 D:\data 或 /data/logs" />
+            <button id="cleanupAddRootBtn" class="btn sm" type="button">添加目录</button>
+          </div>
+          <div id="cleanupCustomRootList" class="selector cleanup-custom-roots"></div>
           <div class="cleanup-filter-row compact">
             <input id="cleanupSearch" class="input" placeholder="模糊搜索：文件名 / 路径 / 文件类型" />
             <input id="cleanupLargeThresholdGB" class="input sm" value="1" />
@@ -534,6 +558,23 @@
               <button id="dockerRefreshBtn" class="btn sm" type="button">刷新容器</button>
             </div>
           </div>
+          <div class="docker-pagination">
+            <div class="docker-pagination-left">
+              <button id="dockerPrevBtn" class="btn sm" type="button">上一页</button>
+              <button id="dockerNextBtn" class="btn sm" type="button">下一页</button>
+              <span id="dockerPageInfo" class="docker-pagination-info">0 / 0</span>
+              <span id="dockerTotalInfo" class="docker-pagination-total">共 0 个容器</span>
+            </div>
+            <div class="docker-pagination-right">
+              <label for="dockerPageSize">每页</label>
+              <select id="dockerPageSize" class="input sm">
+                <option value="10">10</option>
+                <option value="20" selected>20</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </div>
+          </div>
           <div id="dockerContainerTable" class="table"></div>
         </article>
       </section>
@@ -550,6 +591,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=20260327-69"></script>
+  <script src="/static/app.js?v=20260327-70"></script>
 </body>
 </html>

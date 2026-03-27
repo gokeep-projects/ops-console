@@ -58,6 +58,9 @@ type Server struct {
 
 	wsMu      sync.RWMutex
 	wsClients map[*monitorWSClient]struct{}
+
+	authMu       sync.RWMutex
+	authSessions map[string]authSession
 }
 
 const (
@@ -100,15 +103,16 @@ func NewServer(baseDir, configPath string, cfg *config.Config, st *store.Store) 
 	}
 
 	s := &Server{
-		baseDir:     baseDir,
-		configPath:  configPath,
-		cfg:         cfg,
-		store:       st,
-		tpl:         tpl,
-		runner:      script.NewRunner(st),
-		backup:      backup.NewManager(st),
-		trendBuffer: make([]store.MonitorTrendSample, 0, 256),
-		wsClients:   make(map[*monitorWSClient]struct{}),
+		baseDir:      baseDir,
+		configPath:   configPath,
+		cfg:          cfg,
+		store:        st,
+		tpl:          tpl,
+		runner:       script.NewRunner(st),
+		backup:       backup.NewManager(st),
+		trendBuffer:  make([]store.MonitorTrendSample, 0, 256),
+		wsClients:    make(map[*monitorWSClient]struct{}),
+		authSessions: make(map[string]authSession),
 	}
 	s.router = s.routes()
 	return s, nil
@@ -156,40 +160,50 @@ func (s *Server) routes() *chi.Mux {
 	r.Handle("/static/*", noCache(http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir)))))
 
 	r.Get("/", s.handleIndex)
-	r.Get("/api/config", s.handleGetConfig)
-	r.Put("/api/config", s.handleUpdateConfig)
+	r.Route("/api/auth", func(ar chi.Router) {
+		ar.Get("/status", s.handleAuthStatus)
+		ar.Post("/login", s.handleAuthLogin)
+		ar.Post("/logout", s.handleAuthLogout)
+	})
 
-	r.Get("/api/monitor", s.handleMonitor)
-	r.Get("/api/monitor/trends", s.handleMonitorTrends)
-	r.Get("/ws/monitor", s.handleMonitorWS)
-	r.Get("/api/processes/{pid}/detail", s.handleProcessDetail)
-	r.Post("/api/processes/{pid}/kill", s.handleProcessKill)
+	r.Group(func(pr chi.Router) {
+		pr.Use(s.authRequiredMiddleware)
 
-	r.Get("/api/logs/apps", s.handleLogApps)
-	r.Post("/api/logs/apps", s.handleLogAppCreate)
-	r.Delete("/api/logs/apps/{app}", s.handleLogAppDelete)
-	r.Get("/api/logs/{app}", s.handleLogSearch)
-	r.Post("/api/logs/{app}/export", s.handleLogExport)
+		pr.Get("/api/config", s.handleGetConfig)
+		pr.Put("/api/config", s.handleUpdateConfig)
 
-	r.Get("/api/docker/status", s.handleDockerStatus)
-	r.Get("/api/docker/containers", s.handleDockerContainers)
-	r.Post("/api/docker/containers/{id}/action", s.handleDockerContainerAction)
-	r.Get("/api/docker/containers/{id}/logs", s.handleDockerContainerLogs)
-	r.Get("/api/docker/containers/{id}/inspect", s.handleDockerContainerInspect)
+		pr.Get("/api/monitor", s.handleMonitor)
+		pr.Get("/api/monitor/trends", s.handleMonitorTrends)
+		pr.Get("/ws/monitor", s.handleMonitorWS)
+		pr.Get("/api/processes/{pid}/detail", s.handleProcessDetail)
+		pr.Post("/api/processes/{pid}/kill", s.handleProcessKill)
 
-	r.Get("/api/scripts", s.handleScripts)
-	r.Post("/api/scripts/upload", s.handleScriptUpload)
-	r.Post("/api/scripts/run", s.handleScriptRun)
-	r.Get("/api/scripts/runs", s.handleScriptRuns)
-	r.Get("/api/scripts/runs/{id}", s.handleScriptRunDetail)
+		pr.Get("/api/logs/apps", s.handleLogApps)
+		pr.Post("/api/logs/apps", s.handleLogAppCreate)
+		pr.Delete("/api/logs/apps/{app}", s.handleLogAppDelete)
+		pr.Get("/api/logs/{app}", s.handleLogSearch)
+		pr.Post("/api/logs/{app}/export", s.handleLogExport)
 
-	r.Get("/api/backups", s.handleBackups)
-	r.Post("/api/backups/run", s.handleBackupRun)
-	r.Get("/api/backups/download", s.handleBackupDownload)
+		pr.Get("/api/docker/status", s.handleDockerStatus)
+		pr.Get("/api/docker/containers", s.handleDockerContainers)
+		pr.Post("/api/docker/containers/{id}/action", s.handleDockerContainerAction)
+		pr.Get("/api/docker/containers/{id}/logs", s.handleDockerContainerLogs)
+		pr.Get("/api/docker/containers/{id}/inspect", s.handleDockerContainerInspect)
 
-	r.Get("/api/cleanup/meta", s.handleCleanupMeta)
-	r.Post("/api/cleanup/scan", s.handleCleanupScan)
-	r.Post("/api/cleanup/garbage", s.handleCleanupGarbage)
+		pr.Get("/api/scripts", s.handleScripts)
+		pr.Post("/api/scripts/upload", s.handleScriptUpload)
+		pr.Post("/api/scripts/run", s.handleScriptRun)
+		pr.Get("/api/scripts/runs", s.handleScriptRuns)
+		pr.Get("/api/scripts/runs/{id}", s.handleScriptRunDetail)
+
+		pr.Get("/api/backups", s.handleBackups)
+		pr.Post("/api/backups/run", s.handleBackupRun)
+		pr.Get("/api/backups/download", s.handleBackupDownload)
+
+		pr.Get("/api/cleanup/meta", s.handleCleanupMeta)
+		pr.Post("/api/cleanup/scan", s.handleCleanupScan)
+		pr.Post("/api/cleanup/garbage", s.handleCleanupGarbage)
+	})
 	return r
 }
 
@@ -251,7 +265,7 @@ func (s *Server) handleMonitor(w http.ResponseWriter, r *http.Request) {
 		s.collectMonitorSnapshot()
 		res, ok = s.getMonitorSnapshot()
 		if !ok {
-			writeErr(w, http.StatusServiceUnavailable, fmt.Errorf("鐩戞帶鏁版嵁鍒濆鍖栦腑锛岃绋嶅悗閲嶈瘯"))
+			writeErr(w, http.StatusServiceUnavailable, fmt.Errorf("监控数据初始化中，请稍后重试"))
 			return
 		}
 	}

@@ -516,7 +516,7 @@ func gatherApplications(apps []config.Application, catalog []processCatalogEntry
 		if len(patterns) == 0 && app.Name != "" {
 			patterns = []string{app.Name}
 		}
-		matched := matchByPatterns(catalog, patterns, 5)
+		matched := matchByPatterns(catalog, patterns, app.Name, 5)
 		serviceType := app.Type
 		if serviceType == "" {
 			serviceType = "application"
@@ -533,7 +533,7 @@ func gatherDatabases(databases []config.DatabaseTarget, catalog []processCatalog
 		if len(patterns) == 0 && db.Name != "" {
 			patterns = []string{db.Name}
 		}
-		matched := matchByPatterns(catalog, patterns, 5)
+		matched := matchByPatterns(catalog, patterns, db.Name, 5)
 		out = append(out, buildServiceStatus(db.Name, "database", matched))
 	}
 	return out
@@ -546,7 +546,7 @@ func gatherMiddleware(items []config.MiddlewareCheck, catalog []processCatalogEn
 		if len(patterns) == 0 && item.Name != "" {
 			patterns = []string{item.Name}
 		}
-		matched := matchByPatterns(catalog, patterns, 5)
+		matched := matchByPatterns(catalog, patterns, item.Name, 5)
 		out = append(out, buildServiceStatus(item.Name, "middleware", matched))
 	}
 	return out
@@ -598,7 +598,7 @@ func buildProcessCatalog() []processCatalogEntry {
 	return out
 }
 
-func matchByPatterns(catalog []processCatalogEntry, patterns []string, limit int) []processCatalogEntry {
+func matchByPatterns(catalog []processCatalogEntry, patterns []string, serviceName string, limit int) []processCatalogEntry {
 	if len(patterns) == 0 || len(catalog) == 0 {
 		return nil
 	}
@@ -606,32 +606,155 @@ func matchByPatterns(catalog []processCatalogEntry, patterns []string, limit int
 	for _, p := range patterns {
 		p = strings.TrimSpace(strings.ToLower(p))
 		if p != "" {
-			keys = append(keys, p)
+			keys = append(keys, normalizeMatchToken(p))
 		}
 	}
 	if len(keys) == 0 {
 		return nil
 	}
-
-	matched := make([]processCatalogEntry, 0, 8)
-	seen := map[int32]struct{}{}
+	serviceKey := normalizeMatchToken(strings.TrimSpace(serviceName))
+	type scoredMatch struct {
+		entry processCatalogEntry
+		score int
+	}
+	byPID := make(map[int32]scoredMatch, len(catalog))
 	for _, entry := range catalog {
-		searchable := strings.ToLower(entry.Name + " " + entry.Cmdline + " " + entry.ExePath)
-		for _, key := range keys {
-			if strings.Contains(searchable, key) {
-				if _, exists := seen[entry.PID]; exists {
-					break
-				}
-				seen[entry.PID] = struct{}{}
-				matched = append(matched, entry)
-				break
+		for idx, key := range keys {
+			score := scoreProcessMatch(entry, key, idx, serviceKey)
+			if score <= 0 {
+				continue
 			}
-		}
-		if limit > 0 && len(matched) >= limit {
+			if prev, ok := byPID[entry.PID]; !ok || score > prev.score {
+				byPID[entry.PID] = scoredMatch{entry: entry, score: score}
+			}
 			break
 		}
 	}
-	return matched
+	if len(byPID) == 0 {
+		return nil
+	}
+
+	scored := make([]scoredMatch, 0, len(byPID))
+	for _, item := range byPID {
+		scored = append(scored, item)
+	}
+	sort.SliceStable(scored, func(i, j int) bool {
+		if scored[i].score != scored[j].score {
+			return scored[i].score > scored[j].score
+		}
+		in := strings.ToLower(strings.TrimSpace(scored[i].entry.Name))
+		jn := strings.ToLower(strings.TrimSpace(scored[j].entry.Name))
+		if in != jn {
+			return in < jn
+		}
+		return scored[i].entry.PID < scored[j].entry.PID
+	})
+	if limit > 0 && len(scored) > limit {
+		scored = scored[:limit]
+	}
+	out := make([]processCatalogEntry, 0, len(scored))
+	for _, item := range scored {
+		out = append(out, item.entry)
+	}
+	return out
+}
+
+func normalizeMatchToken(raw string) string {
+	token := strings.ToLower(strings.TrimSpace(raw))
+	token = strings.Trim(token, `"'`)
+	token = strings.TrimPrefix(token, "./")
+	token = strings.TrimPrefix(token, ".\\")
+	token = strings.TrimSuffix(token, ".exe")
+	token = strings.Trim(token, `\/`)
+	return token
+}
+
+func scoreProcessMatch(entry processCatalogEntry, key string, patternIndex int, serviceKey string) int {
+	key = normalizeMatchToken(key)
+	if key == "" {
+		return 0
+	}
+
+	name := normalizeMatchToken(strings.ToLower(strings.TrimSpace(entry.Name)))
+	exeBase := normalizeMatchToken(strings.ToLower(strings.TrimSpace(filepath.Base(entry.ExePath))))
+	exePath := strings.ToLower(strings.TrimSpace(entry.ExePath))
+	cmdline := strings.ToLower(strings.TrimSpace(entry.Cmdline))
+
+	score := 100 - patternIndex*8
+	if score < 20 {
+		score = 20
+	}
+
+	if key == name || key == exeBase {
+		score += 120
+	} else if strings.HasPrefix(name, key) || strings.HasPrefix(exeBase, key) {
+		score += 80
+	} else if containsWord(name, key) || containsWord(exeBase, key) {
+		score += 70
+	}
+
+	if strings.Contains(exePath, "/"+key) || strings.Contains(exePath, `\`+key) {
+		score += 60
+	}
+	if containsWord(cmdline, key) {
+		score += 50
+	}
+
+	if len(key) >= 4 {
+		if strings.Contains(name, key) {
+			score += 20
+		}
+		if strings.Contains(exeBase, key) {
+			score += 20
+		}
+	}
+	if len(key) >= 5 && strings.Contains(cmdline, key) {
+		score += 8
+	}
+
+	if serviceKey != "" && serviceKey != key {
+		if strings.Contains(name, serviceKey) || strings.Contains(exeBase, serviceKey) {
+			score += 35
+		} else if containsWord(cmdline, serviceKey) {
+			score += 22
+		}
+	}
+
+	if score < 120 {
+		return 0
+	}
+	return score
+}
+
+func containsWord(text, token string) bool {
+	text = strings.ToLower(strings.TrimSpace(text))
+	token = strings.ToLower(strings.TrimSpace(token))
+	if text == "" || token == "" {
+		return false
+	}
+	idx := strings.Index(text, token)
+	for idx >= 0 {
+		beforeOK := idx == 0 || !isWordChar(text[idx-1])
+		afterIdx := idx + len(token)
+		afterOK := afterIdx >= len(text) || !isWordChar(text[afterIdx])
+		if beforeOK && afterOK {
+			return true
+		}
+		next := idx + len(token)
+		if next >= len(text) {
+			break
+		}
+		n := strings.Index(text[next:], token)
+		if n < 0 {
+			break
+		}
+		idx = next + n
+	}
+	return false
+}
+
+func isWordChar(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') || b == '_' || b == '-' || b == '.'
 }
 
 func gatherJVM(limit int) []ProcessInfo {

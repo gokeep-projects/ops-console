@@ -34,8 +34,17 @@
   cleanupGarbageAbortController: null,
   cleanupFilteredFiles: [],
   cleanupFilteredLargeFiles: [],
+  cleanupCustomRoots: [],
   dockerStatus: null,
   dockerContainers: [],
+  dockerPage: 1,
+  dockerPageSize: 20,
+  dockerTotal: 0,
+  dockerTotalPages: 0,
+  dockerLogTimer: null,
+  dockerLogContainerID: "",
+  dockerLogContainerName: "",
+  authAuthenticated: false,
 };
 
 const bootState = {
@@ -48,6 +57,7 @@ let bootRunning = false;
 let bootFallbackTimer = null;
 let copyToastTimer = null;
 let appToastTimer = null;
+let dockerSearchDebounceTimer = null;
 
 const TREND_KEEP_MS = 24 * 60 * 60 * 1000;
 const TREND_MINI_HOURS = 4;
@@ -111,6 +121,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }, 180000);
 
   try {
+    bindAuthActions();
     bindSidebarToggle();
     bindMenu();
     switchSection("monitor");
@@ -121,13 +132,127 @@ document.addEventListener("DOMContentLoaded", () => {
     bindCleanupActions();
     bindDockerActions();
     bindModal();
-    window.addEventListener("beforeunload", stopMonitorSocket);
-    bootstrap();
+    window.addEventListener("beforeunload", () => {
+      stopMonitorSocket();
+      stopDockerLogStream();
+    });
+    initializeApp();
   } catch (err) {
     console.error("页面初始化失败", err);
     updateBoot("页面初始化失败，请刷新后重试", 0);
   }
 });
+
+async function initializeApp() {
+  const authenticated = await checkAuthStatus();
+  if (!authenticated) {
+    dismissBootOverlay();
+    showAuthOverlay("请先登录后使用系统");
+    return;
+  }
+  hideAuthOverlay();
+  bootstrap();
+}
+
+function bindAuthActions() {
+  const form = document.getElementById("authLoginForm");
+  if (!form) return;
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const username = String(document.getElementById("authUsername")?.value || "").trim();
+    const password = String(document.getElementById("authPassword")?.value || "").trim();
+    if (!username || !password) {
+      setAuthMessage("请填写用户名和密码", "error");
+      return;
+    }
+    setAuthMessage("登录中...", "info");
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+      let data = {};
+      try {
+        data = await res.json();
+      } catch (_) {
+        data = {};
+      }
+      if (!res.ok) {
+        setAuthMessage(data.error || "登录失败", "error");
+        return;
+      }
+      state.authAuthenticated = true;
+      setAuthMessage("登录成功，正在进入系统...", "success");
+      window.location.reload();
+    } catch (err) {
+      console.error("auth login failed", err);
+      setAuthMessage("登录失败，请检查网络或服务状态", "error");
+    }
+  });
+}
+
+async function checkAuthStatus() {
+  try {
+    const res = await fetchWithTimeout("/api/auth/status", 8000);
+    if (!res.ok) {
+      state.authAuthenticated = false;
+      return false;
+    }
+    const data = await res.json();
+    state.authAuthenticated = !!data?.authenticated;
+    return state.authAuthenticated;
+  } catch (err) {
+    console.error("check auth status failed", err);
+    state.authAuthenticated = false;
+    return false;
+  }
+}
+
+function handleAuthRequired(message = "登录已过期，请重新登录") {
+  state.authAuthenticated = false;
+  if (state.monitorTimer) {
+    clearInterval(state.monitorTimer);
+    state.monitorTimer = null;
+  }
+  stopMonitorSocket();
+  stopLogRealtimeLoop();
+  stopDockerLogStream();
+  dismissBootOverlay();
+  showAuthOverlay(message);
+}
+
+function showAuthOverlay(message = "") {
+  const overlay = document.getElementById("authOverlay");
+  if (!overlay) return;
+  overlay.classList.remove("hidden");
+  const usernameInput = document.getElementById("authUsername");
+  if (usernameInput && !String(usernameInput.value || "").trim()) {
+    usernameInput.value = "admin";
+  }
+  setAuthMessage(message || "请输入账号密码登录", message ? "warning" : "info");
+}
+
+function hideAuthOverlay() {
+  const overlay = document.getElementById("authOverlay");
+  if (!overlay) return;
+  overlay.classList.add("hidden");
+}
+
+function setAuthMessage(message, type = "info") {
+  const el = document.getElementById("authMessage");
+  if (!el) return;
+  const text = String(message || "").trim();
+  el.textContent = text || "请输入账号密码登录";
+  el.classList.remove("error", "success", "warning", "info");
+  el.classList.add(type || "info");
+}
+
+function dismissBootOverlay() {
+  document.body.classList.remove("booting");
+  const overlay = document.getElementById("bootOverlay");
+  if (overlay) overlay.style.display = "none";
+}
 
 function bindSidebarToggle() {
   const layout = document.getElementById("mainLayout");
@@ -199,6 +324,7 @@ function bindSidebarToggle() {
 }
 
 async function bootstrap() {
+  if (!state.authAuthenticated) return;
   if (bootFinished || bootRunning) return;
   bootRunning = true;
   try {
@@ -233,6 +359,10 @@ async function bootstrap() {
     }
   } catch (err) {
     console.error("bootstrap failed", err);
+    if (err && String(err.message || "").toLowerCase().includes("unauthorized")) {
+      updateBoot("未登录，等待认证...", Math.floor((bootState.done / bootState.total) * 100));
+      return;
+    }
     updateBoot("初始化失败，正在重试...", Math.floor((bootState.done / bootState.total) * 100));
     setTimeout(() => {
       if (!bootFinished) bootstrap();
@@ -737,10 +867,32 @@ function bindCleanupActions() {
   const stopScanBtn = document.getElementById("cleanupStopScanBtn");
   const stopGarbageBtn = document.getElementById("cleanupStopGarbageBtn");
   const loadRootsBtn = document.getElementById("cleanupLoadRootsBtn");
+  const addRootBtn = document.getElementById("cleanupAddRootBtn");
+  const customRootInput = document.getElementById("cleanupCustomRoot");
+  const customRootList = document.getElementById("cleanupCustomRootList");
 
   if (loadRootsBtn) {
     loadRootsBtn.addEventListener("click", async () => {
       await ensureCleanupMeta(true);
+    });
+  }
+  if (addRootBtn) {
+    addRootBtn.addEventListener("click", () => {
+      addCleanupCustomRoot();
+    });
+  }
+  if (customRootInput) {
+    customRootInput.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      addCleanupCustomRoot();
+    });
+  }
+  if (customRootList) {
+    customRootList.addEventListener("click", (event) => {
+      const btn = event.target.closest("button[data-path]");
+      if (!btn) return;
+      removeCleanupCustomRoot(String(btn.dataset.path || ""));
     });
   }
 
@@ -766,28 +918,80 @@ function bindCleanupActions() {
   renderTable("cleanupDirSummaryList", ["目录", "文件数", "占用", "占比"], []);
   renderTable("cleanupTypeSummaryList", ["类型", "文件数", "占用", "占比"], []);
   renderTable("cleanupGarbageResult", ["目标", "候选文件", "候选体积", "已清理文件", "已清理体积", "失败数", "目录"], []);
+  renderCleanupCustomRoots();
 }
 
 function bindDockerActions() {
   const refreshBtn = document.getElementById("dockerRefreshBtn");
   const searchInput = document.getElementById("dockerSearch");
   const scopeSelect = document.getElementById("dockerScope");
+  const pageSizeSelect = document.getElementById("dockerPageSize");
+  const prevBtn = document.getElementById("dockerPrevBtn");
+  const nextBtn = document.getElementById("dockerNextBtn");
   const table = document.getElementById("dockerContainerTable");
   if (!refreshBtn || !searchInput || !scopeSelect || !table) return;
 
   refreshBtn.addEventListener("click", () => {
+    state.dockerPage = 1;
     loadDockerDashboard(true).catch((err) => {
       console.error("refresh docker dashboard failed", err);
       showAppToast("刷新 Docker 数据失败", "error");
     });
   });
-  searchInput.addEventListener("input", renderDockerContainerTable);
+
+  searchInput.addEventListener("input", () => {
+    if (dockerSearchDebounceTimer) clearTimeout(dockerSearchDebounceTimer);
+    dockerSearchDebounceTimer = setTimeout(() => {
+      state.dockerPage = 1;
+      loadDockerContainers(true).catch((err) => {
+        console.error("search docker containers failed", err);
+        showAppToast("加载容器列表失败", "error");
+      });
+    }, 260);
+  });
+
   scopeSelect.addEventListener("change", () => {
+    state.dockerPage = 1;
     loadDockerContainers(true).catch((err) => {
       console.error("reload docker containers failed", err);
       showAppToast("加载容器列表失败", "error");
     });
   });
+
+  if (pageSizeSelect) {
+    pageSizeSelect.addEventListener("change", () => {
+      const nextSize = Number(pageSizeSelect.value || 20);
+      state.dockerPageSize = Number.isFinite(nextSize) && nextSize > 0 ? nextSize : 20;
+      state.dockerPage = 1;
+      loadDockerContainers(true).catch((err) => {
+        console.error("change docker page size failed", err);
+        showAppToast("加载容器列表失败", "error");
+      });
+    });
+  }
+
+  if (prevBtn) {
+    prevBtn.addEventListener("click", () => {
+      if (state.dockerPage <= 1) return;
+      state.dockerPage -= 1;
+      loadDockerContainers(true).catch((err) => {
+        console.error("docker prev page failed", err);
+        showAppToast("加载容器列表失败", "error");
+      });
+    });
+  }
+
+  if (nextBtn) {
+    nextBtn.addEventListener("click", () => {
+      if (state.dockerTotalPages <= 0 || state.dockerPage >= state.dockerTotalPages) return;
+      state.dockerPage += 1;
+      loadDockerContainers(true).catch((err) => {
+        console.error("docker next page failed", err);
+        showAppToast("加载容器列表失败", "error");
+      });
+    });
+  }
+
   table.addEventListener("click", handleDockerTableClick);
 }
 
@@ -821,11 +1025,18 @@ async function loadDockerStatus(force = false) {
 
 async function loadDockerContainers(force = false) {
   const scope = document.getElementById("dockerScope")?.value || "all";
+  const keyword = String(document.getElementById("dockerSearch")?.value || "").trim();
   const all = scope !== "running";
   let data = null;
 
   try {
-    const res = await fetchWithTimeout(`/api/docker/containers?all=${all ? "1" : "0"}`, 20000);
+    const query = new URLSearchParams({
+      all: all ? "1" : "0",
+      page: String(Math.max(1, Number(state.dockerPage || 1))),
+      page_size: String(Math.max(1, Number(state.dockerPageSize || 20))),
+      keyword,
+    });
+    const res = await fetchWithTimeout(`/api/docker/containers?${query.toString()}`, 20000);
     data = await res.json();
     if (!res.ok) {
       showAppToast(data.error || "加载容器列表失败", "error");
@@ -841,8 +1052,14 @@ async function loadDockerContainers(force = false) {
     state.dockerStatus = data.status;
   }
   renderDockerStatusSummary();
+
   state.dockerContainers = Array.isArray(data?.items) ? data.items : [];
+  state.dockerTotal = Number(data?.total || 0);
+  state.dockerPageSize = Number(data?.page_size || state.dockerPageSize || 20);
+  state.dockerPage = Number(data?.page || state.dockerPage || 1);
+  state.dockerTotalPages = Number(data?.total_pages || 0);
   renderDockerContainerTable();
+  renderDockerPagination();
   return state.dockerContainers;
 }
 
@@ -870,17 +1087,7 @@ function renderDockerContainerTable() {
   const list = Array.isArray(state.dockerContainers) ? state.dockerContainers : [];
   renderDockerKPIs(list);
 
-  const keyword = String(document.getElementById("dockerSearch")?.value || "")
-    .trim()
-    .toLowerCase();
-
-  const filtered = list.filter((item) => {
-    if (!keyword) return true;
-    const text = `${item.name || ""} ${item.image || ""} ${item.id || ""} ${item.status || ""}`.toLowerCase();
-    return text.includes(keyword);
-  });
-
-  const rows = filtered.map((item) => {
+  const rows = list.map((item) => {
     const running = String(item.state || "").toLowerCase() === "running" || String(item.status || "").toLowerCase().includes("up ");
     const statusHTML = `<span class="badge ${running ? "up" : "down"}">${escapeHTML(item.status || item.state || "-")}</span>`;
     const id = escapeHTML(String(item.id || ""));
@@ -911,6 +1118,28 @@ function renderDockerContainerTable() {
     rows.push(["-", "-", "-", "<span class=\"badge unknown\">无数据</span>", "-", "-", "当前条件下没有容器"]);
   }
   renderTable("dockerContainerTable", ["容器名", "ID", "镜像", "状态", "运行时间", "端口映射", "操作"], rows, true);
+}
+
+function renderDockerPagination() {
+  const infoEl = document.getElementById("dockerPageInfo");
+  const totalEl = document.getElementById("dockerTotalInfo");
+  const prevBtn = document.getElementById("dockerPrevBtn");
+  const nextBtn = document.getElementById("dockerNextBtn");
+  const pageSizeSelect = document.getElementById("dockerPageSize");
+
+  if (pageSizeSelect) {
+    pageSizeSelect.value = String(state.dockerPageSize || 20);
+  }
+  if (infoEl) {
+    const page = Number(state.dockerPage || 1);
+    const totalPages = Number(state.dockerTotalPages || 0);
+    infoEl.textContent = totalPages > 0 ? `${page} / ${totalPages}` : "0 / 0";
+  }
+  if (totalEl) {
+    totalEl.textContent = `共 ${num(state.dockerTotal || 0)} 个容器`;
+  }
+  if (prevBtn) prevBtn.disabled = Number(state.dockerPage || 1) <= 1;
+  if (nextBtn) nextBtn.disabled = Number(state.dockerTotalPages || 0) <= 0 || Number(state.dockerPage || 1) >= Number(state.dockerTotalPages || 0);
 }
 
 function renderDockerKPIs(list) {
@@ -945,18 +1174,7 @@ async function handleDockerTableClick(event) {
   if (!cmd || !id) return;
 
   if (cmd === "logs") {
-    try {
-      const res = await fetchWithTimeout(`/api/docker/containers/${encodeURIComponent(id)}/logs?tail=400`, 20000);
-      const data = await res.json();
-      if (!res.ok) {
-        showAppToast(data.error || "拉取容器日志失败", "error");
-        return;
-      }
-      openModal(`容器日志 - ${name}`, `<pre class="log-view compact">${escapeHTML(data.logs || "暂无日志")}</pre>`);
-    } catch (err) {
-      console.error("fetch container logs failed", err);
-      showAppToast("拉取容器日志失败", "error");
-    }
+    openDockerLogStream(id, name);
     return;
   }
 
@@ -977,23 +1195,155 @@ async function handleDockerTableClick(event) {
     return;
   }
 
+  if (cmd === "remove") {
+    const choice = await promptDockerRemoveOptions(name);
+    if (!choice?.confirmed) return;
+    await executeDockerAction(id, name, cmd, { removeVolumes: !!choice.removeVolumes });
+    return;
+  }
+
+  await executeDockerAction(id, name, cmd, {});
+}
+
+async function executeDockerAction(id, name, cmd, options = {}) {
   try {
     const res = await fetchWithTimeout(`/api/docker/containers/${encodeURIComponent(id)}/action`, 30000, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: cmd }),
+      body: JSON.stringify({ action: cmd, remove_volumes: !!options.removeVolumes }),
     });
     const data = await res.json();
     if (!res.ok) {
       showAppToast(data.error || "容器操作失败", "error");
       return;
     }
-    showAppToast(`容器 ${name} ${cmd} 成功`, "success");
+    if (cmd === "remove") {
+      showAppToast(`容器 ${name} 删除成功${options.removeVolumes ? "（已删除数据卷）" : ""}`, "success");
+    } else {
+      showAppToast(`容器 ${name} ${cmd} 成功`, "success");
+    }
     await loadDockerContainers(true);
   } catch (err) {
     console.error("docker action failed", err);
     showAppToast("容器操作失败", "error");
   }
+}
+
+function promptDockerRemoveOptions(name) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const html = `
+      <section class="docker-remove-dialog">
+        <p class="docker-remove-title">确认删除容器「${escapeHTML(name)}」？</p>
+        <label class="docker-remove-volume">
+          <input id="dockerRemoveVolumes" type="checkbox" />
+          <span>同时删除数据卷（谨慎操作）</span>
+        </label>
+        <div class="docker-remove-actions">
+          <button id="dockerCancelRemoveBtn" class="btn sm" type="button">取消</button>
+          <button id="dockerConfirmRemoveBtn" class="btn sm danger" type="button">确认删除</button>
+        </div>
+      </section>
+    `;
+    openModal("删除容器确认", html);
+
+    const confirmBtn = document.getElementById("dockerConfirmRemoveBtn");
+    const cancelBtn = document.getElementById("dockerCancelRemoveBtn");
+    const removeVolumesInput = document.getElementById("dockerRemoveVolumes");
+    const closeBtn = document.getElementById("modalCloseBtn");
+    const mask = document.getElementById("modalMask");
+
+    const cleanup = () => {
+      confirmBtn?.removeEventListener("click", onConfirm);
+      cancelBtn?.removeEventListener("click", onCancel);
+      closeBtn?.removeEventListener("click", onClose);
+      mask?.removeEventListener("click", onMask);
+    };
+
+    const finish = (confirmed, removeVolumes) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve({ confirmed: !!confirmed, removeVolumes: !!removeVolumes });
+    };
+
+    const onConfirm = () => {
+      const removeVolumes = !!removeVolumesInput?.checked;
+      closeModal();
+      finish(true, removeVolumes);
+    };
+    const onCancel = () => {
+      closeModal();
+      finish(false, false);
+    };
+    const onClose = () => {
+      finish(false, false);
+    };
+    const onMask = (event) => {
+      if (event.target?.id === "modalMask") {
+        finish(false, false);
+      }
+    };
+
+    confirmBtn?.addEventListener("click", onConfirm);
+    cancelBtn?.addEventListener("click", onCancel);
+    closeBtn?.addEventListener("click", onClose);
+    mask?.addEventListener("click", onMask);
+  });
+}
+
+function openDockerLogStream(containerID, containerName) {
+  stopDockerLogStream();
+  state.dockerLogContainerID = String(containerID || "").trim();
+  state.dockerLogContainerName = String(containerName || "").trim() || state.dockerLogContainerID;
+  if (!state.dockerLogContainerID) return;
+
+  const html = `
+    <section class="docker-log-modal">
+      <div class="docker-log-toolbar">
+        <span class="hint">实时日志滚动中（每 2 秒刷新）</span>
+        <button id="dockerLogStopBtn" class="btn sm danger" type="button">停止实时</button>
+      </div>
+      <pre id="dockerLogViewer" class="log-view compact docker-log-viewer">正在加载日志...</pre>
+    </section>
+  `;
+  openModal(`容器日志 - ${state.dockerLogContainerName}`, html);
+  document.getElementById("dockerLogStopBtn")?.addEventListener("click", () => {
+    stopDockerLogStream();
+    showAppToast("已停止实时日志滚动", "info");
+  });
+
+  const poll = async () => {
+    const id = state.dockerLogContainerID;
+    if (!id) return;
+    try {
+      const res = await fetchWithTimeout(`/api/docker/containers/${encodeURIComponent(id)}/logs?tail=500`, 25000);
+      const data = await res.json();
+      if (!res.ok) {
+        showAppToast(data.error || "拉取容器日志失败", "error");
+        return;
+      }
+      const viewer = document.getElementById("dockerLogViewer");
+      if (!viewer) return;
+      viewer.textContent = data.logs || "暂无日志";
+      viewer.scrollTop = viewer.scrollHeight;
+    } catch (err) {
+      if (err && String(err.message || "").toLowerCase().includes("unauthorized")) return;
+      console.error("poll docker logs failed", err);
+    }
+  };
+
+  poll();
+  state.dockerLogTimer = setInterval(poll, 2000);
+}
+
+function stopDockerLogStream() {
+  if (state.dockerLogTimer) {
+    clearInterval(state.dockerLogTimer);
+    state.dockerLogTimer = null;
+  }
+  state.dockerLogContainerID = "";
+  state.dockerLogContainerName = "";
 }
 
 function setCleanupScanRunning(running) {
@@ -1041,6 +1391,7 @@ async function ensureCleanupMeta(force = false) {
 
   state.cleanupMeta = data;
   renderCleanupRootOptions(data.root_options || buildCleanupRootOptions(data.default_roots || [], data.os || ""));
+  renderCleanupCustomRoots();
 
   const thresholdInput = document.getElementById("cleanupLargeThresholdGB");
   if (thresholdInput && !String(thresholdInput.value || "").trim()) {
@@ -1108,10 +1459,97 @@ function renderCleanupRootOptions(options) {
     .join("");
 }
 
-function selectedCleanupRoots() {
-  return Array.from(document.querySelectorAll(".cleanup-root-item:checked"))
+function renderCleanupCustomRoots() {
+  const box = document.getElementById("cleanupCustomRootList");
+  if (!box) return;
+  const roots = Array.isArray(state.cleanupCustomRoots) ? state.cleanupCustomRoots : [];
+  if (!roots.length) {
+    box.innerHTML = '<span class="hint">可手动添加任意目录参与扫描</span>';
+    return;
+  }
+  box.innerHTML = roots
+    .map((path) => {
+      const p = String(path || "").trim();
+      if (!p) return "";
+      return `
+        <label class="cleanup-custom-root-item" title="${escapeHTML(p)}">
+          <span>${escapeHTML(p)}</span>
+          <button class="btn sm danger cleanup-remove-root-btn" type="button" data-path="${escapeHTML(p)}">移除</button>
+        </label>
+      `;
+    })
+    .join("");
+}
+
+function addCleanupCustomRoot() {
+  const input = document.getElementById("cleanupCustomRoot");
+  const raw = String(input?.value || "").trim();
+  const path = normalizeCleanupPath(raw);
+  if (!path) {
+    showAppToast("请输入有效目录路径", "warning");
+    return;
+  }
+  const roots = selectedCleanupRoots(true);
+  const key = cleanupPathKey(path);
+  const exists = roots.some((item) => cleanupPathKey(item) === key);
+  if (exists) {
+    showAppToast("该目录已在扫描列表中", "info");
+    if (input) input.value = "";
+    return;
+  }
+  state.cleanupCustomRoots.push(path);
+  renderCleanupCustomRoots();
+  if (input) input.value = "";
+  showAppToast(`已添加目录：${path}`, "success");
+}
+
+function removeCleanupCustomRoot(path) {
+  const key = cleanupPathKey(path);
+  const before = Array.isArray(state.cleanupCustomRoots) ? state.cleanupCustomRoots : [];
+  state.cleanupCustomRoots = before.filter((item) => cleanupPathKey(item) !== key);
+  renderCleanupCustomRoots();
+}
+
+function normalizeCleanupPath(raw) {
+  let text = String(raw || "").trim();
+  if (!text) return "";
+  text = text.replace(/^["']+|["']+$/g, "");
+  if (/^[a-zA-Z]:$/.test(text)) {
+    text += "\\";
+  }
+  text = text.replace(/[\\/]+$/, (m) => (m.includes("\\") ? "\\" : "/"));
+  return text.trim();
+}
+
+function cleanupPathKey(path) {
+  const p = String(path || "").trim();
+  if (!p) return "";
+  if (/^[a-zA-Z]:/.test(p) || p.includes("\\")) {
+    return p.toLowerCase();
+  }
+  return p;
+}
+
+function selectedCleanupRoots(includeCustom = true) {
+  const roots = Array.from(document.querySelectorAll(".cleanup-root-item:checked"))
     .map((node) => String(node.value || "").trim())
     .filter(Boolean);
+  if (!includeCustom) {
+    return roots;
+  }
+  const custom = Array.isArray(state.cleanupCustomRoots) ? state.cleanupCustomRoots : [];
+  const merged = roots.concat(custom);
+  const out = [];
+  const seen = new Set();
+  merged.forEach((item) => {
+    const p = String(item || "").trim();
+    if (!p) return;
+    const key = cleanupPathKey(p);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(p);
+  });
+  return out;
 }
 
 function cleanupThresholdBytes() {
@@ -1533,6 +1971,7 @@ function monitorWSURL() {
 }
 
 function startMonitorSocket() {
+  if (!state.authAuthenticated) return;
   if (state.monitorPaused) return;
   if (state.monitorWS) return;
 
@@ -1567,6 +2006,7 @@ function startMonitorSocket() {
     const hadConnection = state.monitorWSConnected;
     state.monitorWSConnected = false;
     state.monitorWS = null;
+    if (!state.authAuthenticated) return;
     if (state.monitorPaused) return;
     if (hadConnection) {
       refreshMonitor();
@@ -1576,6 +2016,7 @@ function startMonitorSocket() {
 }
 
 function scheduleMonitorSocketReconnect() {
+  if (!state.authAuthenticated) return;
   if (state.monitorPaused) return;
   if (state.monitorWS || state.monitorWSRetryTimer) return;
 
@@ -2753,6 +3194,7 @@ function openModal(title, html, options = {}) {
 }
 
 function closeModal() {
+  stopDockerLogStream();
   clearActiveTrendModalState();
   document.getElementById("modalMask").classList.add("hidden");
   document.body.classList.remove("modal-open");
@@ -3650,7 +4092,12 @@ async function fetchWithTimeout(url, timeoutMS, options = {}) {
   const timeout = Number(timeoutMS || 0);
   const timer = setTimeout(() => controller.abort(), timeout > 0 ? timeout : 12000);
   try {
-    return await fetch(url, { ...options, signal: controller.signal });
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    if (res.status === 401) {
+      handleAuthRequired("未登录或登录已过期，请重新登录");
+      throw new Error("unauthorized");
+    }
+    return res;
   } finally {
     clearTimeout(timer);
   }

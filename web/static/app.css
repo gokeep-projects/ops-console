@@ -31,6 +31,10 @@ body.modal-open {
   overflow: hidden;
 }
 
+.hidden {
+  display: none !important;
+}
+
 .app-bg {
   position: fixed;
   inset: 0;
@@ -1230,6 +1234,47 @@ td .btn {
   margin: 0;
 }
 
+.cleanup-custom-roots {
+  margin-top: 10px;
+}
+
+.cleanup-custom-roots .cleanup-custom-root-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  border: 1px solid rgba(222, 235, 255, 0.42);
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.cleanup-custom-roots .cleanup-custom-root-item span {
+  max-width: 300px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: #f4f8ff;
+}
+
+.cleanup-custom-roots .cleanup-custom-root-item button {
+  border: none;
+  border-radius: 999px;
+  width: 18px;
+  height: 18px;
+  line-height: 18px;
+  text-align: center;
+  cursor: pointer;
+  color: #ffe5e5;
+  background: rgba(180, 60, 47, 0.55);
+  padding: 0;
+}
+
+.cleanup-custom-roots .cleanup-custom-root-item button:hover {
+  background: rgba(180, 60, 47, 0.78);
+}
+
 .cleanup-kpi-grid {
   margin-top: 14px;
   display: grid;
@@ -1481,6 +1526,49 @@ td .btn {
   margin-top: 10px;
 }
 
+.docker-pagination {
+  margin-top: 10px;
+  border: 1px solid #d8e5f8;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: rgba(248, 251, 255, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.docker-pagination-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.docker-pagination-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #476084;
+}
+
+.docker-pagination-right .input.sm {
+  min-width: 76px;
+}
+
+.docker-pagination-info {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1a3f72;
+}
+
+.docker-pagination-total {
+  font-size: 12px;
+  color: #5e7599;
+}
+
 .docker-table-card table td:last-child {
   min-width: 280px;
   white-space: normal;
@@ -1580,6 +1668,51 @@ td .btn {
 
 .modal-body .table {
   max-height: none;
+}
+
+.docker-log-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.docker-log-viewer {
+  margin-top: 10px;
+}
+
+.docker-remove-dialog {
+  display: grid;
+  gap: 12px;
+}
+
+.docker-remove-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #17365f;
+}
+
+.docker-remove-volume {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #d8e5f8;
+  border-radius: 10px;
+  padding: 9px 10px;
+  background: #f8fbff;
+  color: #365478;
+}
+
+.docker-remove-volume input[type="checkbox"] {
+  margin: 0;
+}
+
+.docker-remove-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .system-detail-grid {
@@ -1940,6 +2073,86 @@ td .btn {
   font-weight: 700;
 }
 
+.auth-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 12950;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background:
+    radial-gradient(circle at 12% 8%, rgba(15, 95, 216, 0.24), transparent 42%),
+    radial-gradient(circle at 94% 94%, rgba(20, 152, 226, 0.18), transparent 36%),
+    rgba(8, 20, 38, 0.76);
+}
+
+.auth-card {
+  width: min(420px, 95vw);
+  border: 1px solid rgba(187, 212, 246, 0.5);
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 22px 52px rgba(4, 14, 31, 0.44);
+  background: linear-gradient(165deg, #fdfefe, #eef5ff 64%, #f8fbff);
+}
+
+.auth-card h2 {
+  margin: 0;
+  font-size: 24px;
+  color: #133b74;
+}
+
+.auth-card p {
+  margin: 8px 0 0;
+  color: #5d6f87;
+  font-size: 13px;
+}
+
+.auth-form {
+  margin-top: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.auth-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.auth-form span {
+  font-size: 12px;
+  font-weight: 700;
+  color: #364f6f;
+}
+
+.auth-form .btn {
+  margin-top: 6px;
+  width: 100%;
+}
+
+.auth-message {
+  margin: 10px 0 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.auth-message.info {
+  color: #0f5fd8;
+}
+
+.auth-message.success {
+  color: #17854f;
+}
+
+.auth-message.warning {
+  color: #bf6d07;
+}
+
+.auth-message.error {
+  color: #b43c2f;
+}
+
 .panel.repair-panel {
   display: none;
 }
@@ -2175,6 +2388,15 @@ td .btn {
 
   .cleanup-filter-row.compact {
     flex-direction: column;
+  }
+
+  .docker-pagination {
+    align-items: flex-start;
+  }
+
+  .docker-pagination-right {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .cleanup-side-column {

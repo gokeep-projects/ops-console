@@ -26,6 +26,7 @@ type Config struct {
 type CoreConfig struct {
 	Web      WebConfig    `yaml:"web" json:"web"`
 	SQLite   SQLiteConfig `yaml:"sqlite" json:"sqlite"`
+	Auth     AuthConfig   `yaml:"auth" json:"auth"`
 	Timezone string       `yaml:"timezone" json:"timezone"`
 }
 
@@ -35,6 +36,11 @@ type WebConfig struct {
 
 type SQLiteConfig struct {
 	Path     string `yaml:"path" json:"path"`
+	Password string `yaml:"password" json:"password"`
+}
+
+type AuthConfig struct {
+	Username string `yaml:"username" json:"username"`
 	Password string `yaml:"password" json:"password"`
 }
 
@@ -211,6 +217,14 @@ func LoadOrCreate(path string) (*Config, error) {
 		cfg.Core.Web.Listen = "0.0.0.0:18082"
 		changed = true
 	}
+	if strings.TrimSpace(cfg.Core.Auth.Username) == "" {
+		cfg.Core.Auth.Username = "admin"
+		changed = true
+	}
+	if strings.TrimSpace(cfg.Core.Auth.Password) == "" {
+		cfg.Core.Auth.Password = "123ABCdef"
+		changed = true
+	}
 	if changed {
 		if err := Save(path, cfg); err != nil {
 			return nil, err
@@ -239,6 +253,10 @@ func DefaultConfig() *Config {
 			SQLite: SQLiteConfig{
 				Path:     "data/ops-tool.db",
 				Password: "ops-fixed-password-2026",
+			},
+			Auth: AuthConfig{
+				Username: "admin",
+				Password: "123ABCdef",
 			},
 			Timezone: "Asia/Shanghai",
 		},

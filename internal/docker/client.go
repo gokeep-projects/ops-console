@@ -37,6 +37,10 @@ type Container struct {
 	State      string `json:"state"`
 }
 
+type ContainerActionOptions struct {
+	RemoveVolumes bool
+}
+
 func NewClient(timeout time.Duration) *Client {
 	if timeout <= 0 {
 		timeout = 15 * time.Second
@@ -118,7 +122,7 @@ func (c *Client) ListContainers(ctx context.Context, all bool) ([]Container, err
 	return items, nil
 }
 
-func (c *Client) ContainerAction(ctx context.Context, id, action string) (string, error) {
+func (c *Client) ContainerAction(ctx context.Context, id, action string, opts ContainerActionOptions) (string, error) {
 	id = strings.TrimSpace(id)
 	action = strings.ToLower(strings.TrimSpace(action))
 	if id == "" {
@@ -130,7 +134,11 @@ func (c *Client) ContainerAction(ctx context.Context, id, action string) (string
 	case "start", "stop", "restart":
 		args = []string{action, id}
 	case "remove":
-		args = []string{"rm", "-f", id}
+		args = []string{"rm", "-f"}
+		if opts.RemoveVolumes {
+			args = append(args, "-v")
+		}
+		args = append(args, id)
 	default:
 		return "", fmt.Errorf("unsupported action: %s", action)
 	}

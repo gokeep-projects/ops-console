@@ -4,6 +4,9 @@ core:
     sqlite:
         path: data/ops-tool.db
         password: ops-fixed-password-2026
+    auth:
+        username: admin
+        password: 123ABCdef
     timezone: Asia/Shanghai
 monitor:
     refresh_seconds: 5
