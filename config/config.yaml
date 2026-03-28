@@ -8,6 +8,31 @@ core:
         username: admin
         password: 123ABCdef
     timezone: Asia/Shanghai
+system:
+    site_title: OPS 运维控制台
+    environment: production
+    owner: platform-team
+    default_shell: sh
+    default_work_dir: .
+    menu_visibility:
+        backup: true
+        cicd: true
+        cleanup: true
+        docker: true
+        logs: true
+        monitor: true
+        repair: true
+        system: true
+        traffic: true
+        traffic-capture: true
+    runtime_logs:
+        enabled: false
+        file_path: logs/ops-console/runtime.log
+        max_entries: 3000
+    performance:
+        max_concurrent_tasks: 4
+        cleanup_progress_interval_ms: 300
+        docker_default_page_size: 20
 monitor:
     refresh_seconds: 5
     enable_items:
@@ -123,6 +148,30 @@ middleware:
           cmd: ""
           process_names:
             - keepalived
+cicd:
+    enabled: true
+    pipelines:
+        - id: default-deploy
+          name: 默认部署流水线
+          description: 拉取代码、执行构建并部署到当前主机
+          enabled: true
+          shell: sh
+          work_dir: .
+          artifact_dir: dist
+          branch: master
+          timeout_minutes: 30
+          env:
+            APP_ENV: production
+          stages:
+            - name: 代码拉取
+              command: git pull --rebase
+              continue_on_error: false
+            - name: 构建
+              command: go build ./...
+              continue_on_error: false
+            - name: 部署
+              command: echo "replace deploy command"
+              continue_on_error: false
 extensions:
     backup:
         keep_latest_count: 30

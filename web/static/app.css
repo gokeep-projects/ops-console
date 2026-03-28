@@ -340,6 +340,387 @@ body.modal-open {
   pointer-events: none;
 }
 
+.menu.hidden,
+.panel.hidden-by-config {
+  display: none !important;
+}
+
+.disk-volume-chart,
+.cleanup-mini-chart,
+.log-stats-grid,
+.runtime-log-list,
+.cicd-pipeline-grid,
+.traffic-kpi-grid,
+.docker-tabs,
+.docker-batch-actions,
+.scan-progress-card,
+.backup-source-summary,
+.backup-source-list,
+.system-form-grid,
+.system-menu-visibility,
+.fs-picker {
+  margin-top: 14px;
+}
+
+.disk-volume-chart {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 14px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(15, 95, 216, 0.06), rgba(20, 152, 226, 0.12));
+}
+
+.disk-volume-item {
+  display: grid;
+  grid-template-columns: 150px 1fr 90px;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.disk-volume-label {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.disk-volume-bar {
+  display: block;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(18, 32, 51, 0.08);
+  overflow: hidden;
+}
+
+.disk-volume-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #0f5fd8, #1498e2);
+}
+
+.disk-volume-size {
+  color: var(--muted);
+  text-align: right;
+}
+
+.mount-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(15, 95, 216, 0.08);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.mount-badge.docker {
+  background: rgba(22, 119, 255, 0.14);
+  color: #0f4ca8;
+}
+
+.log-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.log-stat-card {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #ffffff, #f6f9ff);
+  border: 1px solid rgba(15, 95, 216, 0.08);
+}
+
+.log-stat-card strong {
+  font-size: 22px;
+}
+
+.log-stat-card.error strong {
+  color: var(--danger);
+}
+
+.log-stat-card.warn strong {
+  color: var(--warn);
+}
+
+.log-stat-card.info strong {
+  color: var(--primary);
+}
+
+.log-entry-card,
+.runtime-log-item,
+.cicd-pipeline-card {
+  border: 1px solid rgba(18, 32, 51, 0.08);
+  border-radius: 16px;
+  padding: 14px 16px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(247,250,255,0.98));
+  box-shadow: 0 10px 24px rgba(17, 37, 69, 0.04);
+}
+
+.log-entry-card {
+  margin-bottom: 12px;
+}
+
+.log-entry-card header,
+.runtime-log-item header {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.log-entry-card.error,
+.runtime-log-item.error {
+  border-color: rgba(180, 60, 47, 0.22);
+}
+
+.log-entry-card.warn,
+.runtime-log-item.warn {
+  border-color: rgba(204, 122, 18, 0.22);
+}
+
+.log-entry-message {
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.backup-source-summary {
+  flex: 1 1 auto;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  border-radius: 12px;
+  background: rgba(15, 95, 216, 0.06);
+  color: var(--ink);
+}
+
+.backup-source-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.backup-source-list label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.scan-progress-card {
+  display: grid;
+  gap: 8px;
+}
+
+.scan-progress-track {
+  position: relative;
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(18, 32, 51, 0.08);
+  overflow: hidden;
+}
+
+.scan-progress-bar {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #0f5fd8, #1498e2, #29b6a3);
+  transition: width 0.4s ease;
+}
+
+.scan-progress-bar.done {
+  background: linear-gradient(90deg, #1a9b75, #45c486);
+}
+
+.scan-progress-text {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.cleanup-mini-chart,
+.ratio-chart-item {
+  display: grid;
+  gap: 10px;
+}
+
+.ratio-chart-item {
+  grid-template-columns: 120px 1fr 60px;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.ratio-chart-bar {
+  display: block;
+  height: 9px;
+  border-radius: 999px;
+  background: rgba(18, 32, 51, 0.08);
+  overflow: hidden;
+}
+
+.ratio-chart-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.docker-tabs {
+  display: flex;
+  gap: 10px;
+}
+
+.docker-tabs .btn.active {
+  background: linear-gradient(135deg, #0f5fd8, #1498e2);
+  color: #fff;
+}
+
+.docker-batch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.cicd-pipeline-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.cicd-pipeline-card {
+  display: grid;
+  gap: 12px;
+}
+
+.cicd-pipeline-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cicd-pipeline-card .meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.traffic-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.traffic-kpi-card {
+  display: grid;
+  gap: 6px;
+  padding: 16px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #ffffff, #f7fbff);
+  border: 1px solid rgba(15, 95, 216, 0.08);
+}
+
+.traffic-kpi-card span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.traffic-kpi-card strong {
+  font-size: 24px;
+}
+
+.system-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.system-form-grid .field,
+.system-menu-visibility {
+  display: grid;
+  gap: 6px;
+}
+
+.system-form-grid .field span,
+.system-menu-visibility h4 {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0;
+}
+
+.runtime-log-list {
+  display: grid;
+  gap: 12px;
+  max-height: 720px;
+  overflow: auto;
+}
+
+.fs-picker {
+  display: grid;
+  gap: 14px;
+}
+
+.fs-picker-tree {
+  max-height: 460px;
+  overflow: auto;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(15, 95, 216, 0.04);
+}
+
+.fs-tree-level {
+  list-style: none;
+  padding-left: 14px;
+  margin: 0;
+}
+
+.fs-tree-node {
+  margin-bottom: 6px;
+}
+
+.fs-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fs-tree-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fs-picker-actions,
+.fs-picker-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+@media (max-width: 960px) {
+  .log-stats-grid,
+  .system-form-grid,
+  .traffic-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .disk-volume-item,
+  .ratio-chart-item {
+    grid-template-columns: 1fr;
+  }
+
+  .docker-batch-actions,
+  .docker-tabs {
+    flex-direction: column;
+  }
+}
+
 .layout.sidebar-collapsed .menu-icon {
   width: 16px;
   height: 16px;

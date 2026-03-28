@@ -4,6 +4,7 @@ go 1.25.3
 
 require (
 	github.com/go-chi/chi/v5 v5.2.5
+	github.com/google/gopacket v1.1.19
 	github.com/gosnmp/gosnmp v1.40.0
 	github.com/shirou/gopsutil/v3 v3.24.5
 	gopkg.in/yaml.v3 v3.0.1

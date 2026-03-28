@@ -40,6 +40,18 @@ type BackupRecord struct {
 	FinishedAt time.Time `json:"finished_at"`
 }
 
+type CICDRun struct {
+	ID         int64     `json:"id"`
+	PipelineID string    `json:"pipeline_id"`
+	Name       string    `json:"name"`
+	Status     string    `json:"status"`
+	Branch     string    `json:"branch"`
+	WorkDir    string    `json:"work_dir"`
+	Output     string    `json:"output"`
+	StartedAt  time.Time `json:"started_at"`
+	FinishedAt time.Time `json:"finished_at"`
+}
+
 type MonitorTrendSample struct {
 	At           time.Time
 	CPUUsage     float64
@@ -115,6 +127,17 @@ func (s *Store) InitSchema() error {
 			net_out_total INTEGER NOT NULL,
 			disk_total INTEGER NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS cicd_runs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			pipeline_id TEXT NOT NULL,
+			name TEXT NOT NULL,
+			status TEXT NOT NULL,
+			branch TEXT NOT NULL DEFAULT '',
+			work_dir TEXT NOT NULL DEFAULT '',
+			output TEXT NOT NULL DEFAULT '',
+			started_at TEXT NOT NULL,
+			finished_at TEXT
+		)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
@@ -127,12 +150,15 @@ func (s *Store) InitSchema() error {
 func (s *Store) SyncConfig(cfg *config.Config) error {
 	payload := map[string]any{
 		"core":         cfg.Core,
+		"system":       cfg.System,
 		"monitor":      cfg.Monitor,
+		"applications": cfg.Applications,
 		"log_analysis": cfg.LogAnalysis,
 		"repair":       cfg.Repair,
 		"backup":       cfg.Backup,
 		"databases":    cfg.Databases,
 		"middleware":   cfg.Middleware,
+		"cicd":         cfg.CICD,
 		"extensions":   cfg.Extensions,
 	}
 	for key, value := range payload {
@@ -269,6 +295,76 @@ func (s *Store) ListBackups(limit int) ([]BackupRecord, error) {
 		items = append(items, item)
 	}
 	return items, nil
+}
+
+func (s *Store) CreateCICDRun(pipelineID, name, branch, workDir string) (int64, error) {
+	now := time.Now().Format(time.RFC3339)
+	res, err := s.db.Exec(
+		`INSERT INTO cicd_runs(pipeline_id, name, status, branch, work_dir, output, started_at)
+		 VALUES(?, ?, 'running', ?, ?, '', ?)`,
+		pipelineID, name, branch, workDir, now,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (s *Store) AppendCICDRunOutput(id int64, chunk string) error {
+	_, err := s.db.Exec(`UPDATE cicd_runs SET output = output || ? WHERE id = ?`, chunk, id)
+	return err
+}
+
+func (s *Store) FinishCICDRun(id int64, status string) error {
+	_, err := s.db.Exec(
+		`UPDATE cicd_runs SET status = ?, finished_at = ? WHERE id = ?`,
+		status, time.Now().Format(time.RFC3339), id,
+	)
+	return err
+}
+
+func (s *Store) ListCICDRuns(limit int) ([]CICDRun, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.db.Query(
+		`SELECT id, pipeline_id, name, status, branch, work_dir, output, started_at, COALESCE(finished_at, '')
+		 FROM cicd_runs ORDER BY id DESC LIMIT ?`,
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]CICDRun, 0, limit)
+	for rows.Next() {
+		var item CICDRun
+		var started, finished string
+		if err := rows.Scan(&item.ID, &item.PipelineID, &item.Name, &item.Status, &item.Branch, &item.WorkDir, &item.Output, &started, &finished); err != nil {
+			return nil, err
+		}
+		item.StartedAt = parseTime(started)
+		item.FinishedAt = parseTime(finished)
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+func (s *Store) GetCICDRun(id int64) (*CICDRun, error) {
+	var item CICDRun
+	var started, finished string
+	err := s.db.QueryRow(
+		`SELECT id, pipeline_id, name, status, branch, work_dir, output, started_at, COALESCE(finished_at, '')
+		 FROM cicd_runs WHERE id = ?`,
+		id,
+	).Scan(&item.ID, &item.PipelineID, &item.Name, &item.Status, &item.Branch, &item.WorkDir, &item.Output, &started, &finished)
+	if err != nil {
+		return nil, err
+	}
+	item.StartedAt = parseTime(started)
+	item.FinishedAt = parseTime(finished)
+	return &item, nil
 }
 
 func parseTime(raw string) time.Time {

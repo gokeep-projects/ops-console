@@ -155,6 +155,49 @@ func (s *Server) handleDockerContainerAction(w http.ResponseWriter, r *http.Requ
 	})
 }
 
+func (s *Server) handleDockerContainersBatchAction(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IDs           []string `json:"ids"`
+		Action        string   `json:"action"`
+		RemoveVolumes bool     `json:"remove_volumes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	req.Action = strings.ToLower(strings.TrimSpace(req.Action))
+	if req.Action == "" || len(req.IDs) == 0 {
+		writeErr(w, http.StatusBadRequest, dockerError("ids and action are required"))
+		return
+	}
+
+	client := docker.NewClient(45 * time.Second)
+	status := client.Status(r.Context())
+	if !status.Installed || !status.DaemonRunning {
+		writeErr(w, http.StatusBadRequest, errDockerUnavailable(status.Error))
+		return
+	}
+
+	results := make([]map[string]any, 0, len(req.IDs))
+	for _, id := range req.IDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		out, err := client.ContainerAction(r.Context(), id, req.Action, docker.ContainerActionOptions{
+			RemoveVolumes: req.RemoveVolumes,
+		})
+		results = append(results, map[string]any{
+			"id":      id,
+			"action":  req.Action,
+			"ok":      err == nil,
+			"message": out,
+			"error":   errorText(err),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": results})
+}
+
 func (s *Server) handleDockerContainerLogs(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(chi.URLParam(r, "id"))
 	if id == "" {
@@ -221,6 +264,101 @@ func (s *Server) handleDockerContainerInspect(w http.ResponseWriter, r *http.Req
 	})
 }
 
+func (s *Server) handleDockerImages(w http.ResponseWriter, r *http.Request) {
+	client := docker.NewClient(20 * time.Second)
+	status := client.Status(r.Context())
+	keyword := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("keyword")))
+	if !status.Installed || !status.DaemonRunning {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status": status,
+			"items":  []docker.Image{},
+		})
+		return
+	}
+	items, err := client.ListImages(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	filtered := make([]docker.Image, 0, len(items))
+	for _, item := range items {
+		if keyword == "" || strings.Contains(strings.ToLower(item.DisplayName+" "+item.ID+" "+item.Digest), keyword) {
+			filtered = append(filtered, item)
+		}
+	}
+	sort.SliceStable(filtered, func(i, j int) bool {
+		return strings.ToLower(filtered[i].DisplayName) < strings.ToLower(filtered[j].DisplayName)
+	})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": status,
+		"items":  filtered,
+	})
+}
+
+func (s *Server) handleDockerImagesBatchAction(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IDs    []string `json:"ids"`
+		Action string   `json:"action"`
+		Force  bool     `json:"force"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	req.Action = strings.ToLower(strings.TrimSpace(req.Action))
+	if req.Action == "" || len(req.IDs) == 0 {
+		writeErr(w, http.StatusBadRequest, dockerError("ids and action are required"))
+		return
+	}
+	client := docker.NewClient(45 * time.Second)
+	status := client.Status(r.Context())
+	if !status.Installed || !status.DaemonRunning {
+		writeErr(w, http.StatusBadRequest, errDockerUnavailable(status.Error))
+		return
+	}
+	results := make([]map[string]any, 0, len(req.IDs))
+	for _, id := range req.IDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		out, err := client.ImageAction(r.Context(), id, req.Action, req.Force)
+		results = append(results, map[string]any{
+			"id":      id,
+			"action":  req.Action,
+			"ok":      err == nil,
+			"message": out,
+			"error":   errorText(err),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": results})
+}
+
+func (s *Server) handleDockerImageInspect(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(chi.URLParam(r, "id"))
+	if id == "" {
+		writeErr(w, http.StatusBadRequest, dockerError("image id is required"))
+		return
+	}
+	client := docker.NewClient(20 * time.Second)
+	status := client.Status(r.Context())
+	if !status.Installed || !status.DaemonRunning {
+		writeErr(w, http.StatusBadRequest, errDockerUnavailable(status.Error))
+		return
+	}
+	text, err := client.ImageInspect(r.Context(), id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	var payload any
+	if err := json.Unmarshal([]byte(text), &payload); err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"id": id, "inspect": text})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "inspect": payload})
+}
+
 var (
 	errInvalidDockerContainerID = dockerError("container id is required")
 	errInvalidDockerAction      = dockerError("action is required")
@@ -233,6 +371,13 @@ func (e dockerError) Error() string { return string(e) }
 func errDockerUnavailable(detail string) error {
 	_ = detail
 	return dockerError("Docker 服务未就绪，请先安装或启动 Docker")
+}
+
+func errorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 func parsePositiveInt(raw string, def int) int {

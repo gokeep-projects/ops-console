@@ -19,6 +19,9 @@
   diskLastSample: null,
   lastDiskRealtime: null,
   scripts: [],
+  trafficSnapshot: null,
+  trafficInterfaces: [],
+  trafficPollTimer: null,
   apps: [],
   logRules: [],
   currentApp: null,
@@ -30,6 +33,9 @@
   monitorWSRetryAttempt: 0,
   cleanupMeta: null,
   cleanupScan: null,
+  cleanupScanJobId: "",
+  cleanupScanPollTimer: null,
+  cleanupScanProgress: null,
   cleanupScanAbortController: null,
   cleanupGarbageAbortController: null,
   cleanupFilteredFiles: [],
@@ -37,6 +43,10 @@
   cleanupCustomRoots: [],
   dockerStatus: null,
   dockerContainers: [],
+  dockerImages: [],
+  dockerTab: "containers",
+  dockerSelectedContainerIDs: [],
+  dockerSelectedImageIDs: [],
   dockerPage: 1,
   dockerPageSize: 20,
   dockerTotal: 0,
@@ -44,11 +54,20 @@
   dockerLogTimer: null,
   dockerLogContainerID: "",
   dockerLogContainerName: "",
+  systemRuntimeLogs: [],
+  fsTreeCache: {},
+  fsModalMode: "",
+  fsModalSelected: [],
+  backupSelectedSources: [],
+  cicdPipelines: [],
+  cicdRuns: [],
+  cicdCurrentRunId: 0,
+  cicdRunTimer: null,
   authAuthenticated: false,
 };
 
 const bootState = {
-  total: 7,
+  total: 11,
   done: 0,
 };
 
@@ -58,6 +77,13 @@ let bootFallbackTimer = null;
 let copyToastTimer = null;
 let appToastTimer = null;
 let dockerSearchDebounceTimer = null;
+let runtimeLogDebounceTimer = null;
+let fsModalConfirmHandler = null;
+let fsModalMulti = false;
+let fsModalAllowCreate = false;
+let fsModalTitle = "";
+let fsModalExpanded = new Set();
+let fsModalRoots = [];
 
 const TREND_KEEP_MS = 24 * 60 * 60 * 1000;
 const TREND_MINI_HOURS = 4;
@@ -127,14 +153,20 @@ document.addEventListener("DOMContentLoaded", () => {
     switchSection("monitor");
     bindMonitorActions();
     bindLogActions();
+    bindTrafficActions();
     bindRepairActions();
     bindBackupActions();
     bindCleanupActions();
     bindDockerActions();
+    bindCICDActions();
+    bindSystemActions();
     bindModal();
     window.addEventListener("beforeunload", () => {
       stopMonitorSocket();
       stopDockerLogStream();
+      stopCleanupScanPolling();
+      stopCICDRunPolling();
+      stopTrafficPolling();
     });
     initializeApp();
   } catch (err) {
@@ -343,9 +375,13 @@ async function bootstrap() {
     await runOptionalBootStep("采集首批监控数据", () => refreshMonitor(false), { retries: 2, timeout: 45000 });
     await runOptionalBootStep("加载趋势历史", loadTrendHistory, { retries: 1, timeout: 20000 });
     await runOptionalBootStep("加载应用和日志规则", loadApps, { retries: 1, timeout: 16000 });
+    await runOptionalBootStep("加载流量分析基础信息", loadTrafficData, { retries: 1, timeout: 16000 });
     await runOptionalBootStep("加载脚本定义", loadScripts, { retries: 1, timeout: 16000 });
     await runOptionalBootStep("加载脚本执行历史", loadScriptRuns, { retries: 1, timeout: 16000 });
     await runOptionalBootStep("加载备份记录", loadBackups, { retries: 1, timeout: 16000 });
+    await runOptionalBootStep("加载 CI/CD 配置", loadCICDData, { retries: 1, timeout: 16000 });
+    await runOptionalBootStep("加载系统运行日志", loadRuntimeLogs, { retries: 1, timeout: 16000 });
+    await runOptionalBootStep("同步系统管理表单", applySystemConfigForm, { retries: 0, timeout: 6000 });
 
     const degraded = softFailures.length > 0;
     finishBoot(degraded ? "初始化完成（部分数据稍后加载）" : "初始化完成");
@@ -433,6 +469,7 @@ function bindMenu() {
   const buttons = document.querySelectorAll(".menu");
   const activate = (targetBtn) => {
     buttons.forEach((btn) => {
+      if (btn.classList.contains("hidden")) return;
       const active = btn === targetBtn;
       btn.classList.toggle("active", active);
       btn.setAttribute("aria-current", active ? "page" : "false");
@@ -444,6 +481,7 @@ function bindMenu() {
 
   buttons.forEach((btn) => {
     btn.addEventListener("click", () => {
+      if (btn.classList.contains("hidden")) return;
       activate(btn);
       switchSection(btn.dataset.section);
     });
@@ -467,6 +505,31 @@ function switchSection(target) {
     loadDockerDashboard().catch((err) => {
       console.error("load docker dashboard failed", err);
       showAppToast("加载 Docker 数据失败", "error");
+    });
+  }
+  if (target === "traffic" || target === "traffic-capture") {
+    loadTrafficData(true).catch((err) => {
+      console.error("load traffic data failed", err);
+      showAppToast("加载流量分析失败", "error");
+    });
+    startTrafficPolling();
+  } else {
+    stopTrafficPolling();
+  }
+  if (target === "cicd") {
+    loadCICDData().catch((err) => {
+      console.error("load cicd data failed", err);
+      showAppToast("加载 CI/CD 数据失败", "error");
+    });
+  }
+  if (target === "system") {
+    applySystemConfigForm().catch((err) => {
+      console.error("apply system config form failed", err);
+      showAppToast("加载系统配置失败", "error");
+    });
+    loadRuntimeLogs().catch((err) => {
+      console.error("load runtime logs failed", err);
+      showAppToast("加载运行日志失败", "error");
     });
   }
 }
@@ -776,6 +839,17 @@ function bindLogActions() {
   document.getElementById("logAddCardBtn").addEventListener("click", openAddLogCardModal);
 }
 
+function bindTrafficActions() {
+  document.getElementById("trafficRefreshBtn")?.addEventListener("click", () => loadTrafficData(true));
+  document.getElementById("trafficCaptureRefreshBtn")?.addEventListener("click", () => loadTrafficData(true));
+  document.getElementById("trafficStartBtn")?.addEventListener("click", startTrafficCapture);
+  document.getElementById("trafficStopBtn")?.addEventListener("click", stopTrafficCapture);
+  document.getElementById("trafficConnectionSearch")?.addEventListener("input", renderTrafficConnectionTable);
+  document.getElementById("trafficPacketSearch")?.addEventListener("input", renderTrafficPacketTable);
+  document.getElementById("trafficPacketTable")?.addEventListener("click", handleTrafficPacketClick);
+  document.getElementById("trafficHTTPTable")?.addEventListener("click", handleTrafficHTTPClick);
+}
+
 function syncLogRealtimeState(activeSection = "") {
   const current = String(activeSection || "").trim() || String(document.querySelector(".panel.visible")?.id || "").trim();
   if (current !== "logs" || !state.currentApp) {
@@ -840,6 +914,38 @@ function bindRepairActions() {
 }
 
 function bindBackupActions() {
+  document.getElementById("backupSelectSourceBtn")?.addEventListener("click", () => {
+    openDirectoryPicker({
+      mode: "backup-source",
+      title: "选择备份源目录",
+      multi: true,
+      selected: state.backupSelectedSources,
+      onConfirm: (paths) => {
+        state.backupSelectedSources = [...paths];
+        renderBackupSources();
+      },
+    });
+  });
+  document.getElementById("backupSelectTargetBtn")?.addEventListener("click", () => {
+    openDirectoryPicker({
+      mode: "backup-target",
+      title: "选择备份目标目录",
+      multi: false,
+      selected: [String(document.getElementById("backupTarget")?.value || "").trim()].filter(Boolean),
+      allowCreate: true,
+      onConfirm: (paths) => {
+        document.getElementById("backupTarget").value = paths[0] || "";
+      },
+    });
+  });
+  document.getElementById("backupCreateTargetBtn")?.addEventListener("click", async () => {
+    const current = String(document.getElementById("backupTarget")?.value || "").trim();
+    const next = prompt("请输入要创建的目录绝对路径", current || "");
+    if (!next) return;
+    const path = await createDirectory(next);
+    document.getElementById("backupTarget").value = path;
+    showAppToast(`目录已创建: ${path}`, "success");
+  });
   document.getElementById("runBackupBtn").addEventListener("click", async () => {
     const type = document.getElementById("backupType").value;
     const name = document.getElementById("backupName").value;
@@ -848,7 +954,7 @@ function bindBackupActions() {
     const res = await fetch("/api/backups/run", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type, name, target }),
+      body: JSON.stringify({ type, name, target, paths: state.backupSelectedSources }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -858,6 +964,7 @@ function bindBackupActions() {
     await loadBackups();
     showAppToast("备份任务已提交", "success");
   });
+  renderBackupSources();
 }
 
 function bindCleanupActions() {
@@ -867,6 +974,7 @@ function bindCleanupActions() {
   const stopScanBtn = document.getElementById("cleanupStopScanBtn");
   const stopGarbageBtn = document.getElementById("cleanupStopGarbageBtn");
   const loadRootsBtn = document.getElementById("cleanupLoadRootsBtn");
+  const openTreeBtn = document.getElementById("cleanupOpenTreeBtn");
   const addRootBtn = document.getElementById("cleanupAddRootBtn");
   const customRootInput = document.getElementById("cleanupCustomRoot");
   const customRootList = document.getElementById("cleanupCustomRootList");
@@ -874,6 +982,20 @@ function bindCleanupActions() {
   if (loadRootsBtn) {
     loadRootsBtn.addEventListener("click", async () => {
       await ensureCleanupMeta(true);
+    });
+  }
+  if (openTreeBtn) {
+    openTreeBtn.addEventListener("click", () => {
+      openDirectoryPicker({
+        mode: "cleanup-root",
+        title: "选择扫描目录",
+        multi: true,
+        selected: state.cleanupCustomRoots,
+        onConfirm: (paths) => {
+          state.cleanupCustomRoots = [...paths];
+          renderCleanupCustomRoots();
+        },
+      });
     });
   }
   if (addRootBtn) {
@@ -929,6 +1051,7 @@ function bindDockerActions() {
   const prevBtn = document.getElementById("dockerPrevBtn");
   const nextBtn = document.getElementById("dockerNextBtn");
   const table = document.getElementById("dockerContainerTable");
+  const imageTable = document.getElementById("dockerImageTable");
   if (!refreshBtn || !searchInput || !scopeSelect || !table) return;
 
   refreshBtn.addEventListener("click", () => {
@@ -993,11 +1116,35 @@ function bindDockerActions() {
   }
 
   table.addEventListener("click", handleDockerTableClick);
+  imageTable?.addEventListener("click", handleDockerImageTableClick);
+  document.getElementById("dockerTabContainers")?.addEventListener("click", () => switchDockerTab("containers"));
+  document.getElementById("dockerTabImages")?.addEventListener("click", () => switchDockerTab("images"));
+  document.getElementById("dockerBatchStartBtn")?.addEventListener("click", () => runDockerBatchAction("start"));
+  document.getElementById("dockerBatchStopBtn")?.addEventListener("click", () => runDockerBatchAction("stop"));
+  document.getElementById("dockerBatchRestartBtn")?.addEventListener("click", () => runDockerBatchAction("restart"));
+  document.getElementById("dockerBatchRemoveBtn")?.addEventListener("click", () => runDockerBatchAction("remove"));
+  document.getElementById("dockerBatchRemoveImagesBtn")?.addEventListener("click", () => runDockerImageBatchAction("remove"));
+}
+
+function bindCICDActions() {
+  document.getElementById("cicdRefreshBtn")?.addEventListener("click", () => loadCICDData(true));
+  document.getElementById("cicdAddPipelineBtn")?.addEventListener("click", () => openCICDPipelineEditor());
+  document.getElementById("cicdStopRunBtn")?.addEventListener("click", () => stopCurrentCICDRun());
+}
+
+function bindSystemActions() {
+  document.getElementById("runtimeLogRefreshBtn")?.addEventListener("click", () => loadRuntimeLogs(true));
+  document.getElementById("runtimeLogKeyword")?.addEventListener("input", debounceRuntimeLogReload);
+  document.getElementById("runtimeLogLevel")?.addEventListener("change", () => loadRuntimeLogs(true));
+  document.getElementById("systemSaveBtn")?.addEventListener("click", saveSystemConfig);
 }
 
 async function loadDockerDashboard(force = false) {
   await loadDockerStatus(force);
   await loadDockerContainers(force);
+  if (state.dockerTab === "images") {
+    await loadDockerImages(force);
+  }
 }
 
 async function loadDockerStatus(force = false) {
@@ -1072,7 +1219,8 @@ function renderDockerStatusSummary() {
     return;
   }
   if (!st.daemon_running) {
-    el.textContent = "Docker 服务未就绪（可能未安装或未启动）。安装并启动后即可管理容器。";
+    const context = st.context ? `当前上下文 ${st.context}` : "";
+    el.textContent = ["Docker 服务未启动或未连接。", context].filter(Boolean).join(" ");
     return;
   }
   const parts = [];
@@ -1104,6 +1252,7 @@ function renderDockerContainerTable() {
     actions.push(`<button class="btn sm docker-action" data-docker-cmd="inspect" data-id="${id}" data-name="${escapeHTML(item.name || "")}">详情</button>`);
 
     return [
+      `<input type="checkbox" class="docker-container-select" value="${id}" ${state.dockerSelectedContainerIDs.includes(String(item.id || "")) ? "checked" : ""}>`,
       item.name || "-",
       shorten(item.id || "-", 14),
       item.image || "-",
@@ -1115,9 +1264,10 @@ function renderDockerContainerTable() {
   });
 
   if (!rows.length) {
-    rows.push(["-", "-", "-", "<span class=\"badge unknown\">无数据</span>", "-", "-", "当前条件下没有容器"]);
+    rows.push(["-", "-", "-", "-", "<span class=\"badge unknown\">无数据</span>", "-", "-", "当前条件下没有容器"]);
   }
-  renderTable("dockerContainerTable", ["容器名", "ID", "镜像", "状态", "运行时间", "端口映射", "操作"], rows, true);
+  renderTable("dockerContainerTable", ["选择", "容器名", "ID", "镜像", "状态", "运行时间", "端口映射", "操作"], rows, true);
+  syncDockerSelections();
 }
 
 function renderDockerPagination() {
@@ -1165,6 +1315,10 @@ function renderDockerKPIs(list) {
 }
 
 async function handleDockerTableClick(event) {
+  if (event.target.closest(".docker-container-select")) {
+    syncDockerSelections();
+    return;
+  }
   const btn = event.target.closest("button[data-docker-cmd]");
   if (!btn) return;
 
@@ -1358,6 +1512,9 @@ function setCleanupScanRunning(running) {
   }
   if (stopScanBtn) {
     stopScanBtn.disabled = !active;
+  }
+  if (!active) {
+    updateCleanupScanProgress({ finished: true, scanned_files: state.cleanupScan?.scanned_files || 0, matched_files: state.cleanupScan?.matched_files || 0 });
   }
 }
 
@@ -1560,7 +1717,7 @@ function cleanupThresholdBytes() {
 }
 
 async function runCleanupScan() {
-  if (state.cleanupScanAbortController) return;
+  if (state.cleanupScanJobId) return;
 
   const meta = await ensureCleanupMeta(false);
   const effectiveRoots = selectedCleanupRoots();
@@ -1570,24 +1727,15 @@ async function runCleanupScan() {
   }
 
   const query = String(document.getElementById("cleanupSearch")?.value || "").trim();
-  const controller = new AbortController();
-  state.cleanupScanAbortController = controller;
-  const timeoutTimer = setTimeout(() => {
-    try {
-      controller.abort();
-    } catch (_) {
-      // ignore
-    }
-  }, 30 * 60 * 1000);
 
   try {
     setCleanupScanRunning(true);
+    updateCleanupScanProgress({ running: true, scanned_files: 0, matched_files: 0 });
     setText("cleanupSummary", "正在扫描，请稍候...");
 
-    const res = await fetch("/api/cleanup/scan", {
+    const res = await fetch("/api/cleanup/scan-jobs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      signal: controller.signal,
       body: JSON.stringify({
         roots: effectiveRoots,
         query,
@@ -1603,41 +1751,87 @@ async function runCleanupScan() {
       setText("cleanupSummary", "扫描失败");
       return;
     }
-
-    state.cleanupScan = data.scan || {};
-    applyCleanupFilterAndRender();
-
-    setCleanupIndexerTag(data.fast_indexer || meta?.fast_indexer || null);
-    showAppToast("扫描完成", "success");
+    state.cleanupScanJobId = String(data.job_id || "");
+    startCleanupScanPolling(meta);
   } catch (err) {
-    if (err && err.name === "AbortError") {
-      setText("cleanupSummary", "扫描已停止");
-      showAppToast("扫描已停止", "info");
-      return;
-    }
     console.error("cleanup scan failed", err);
     showAppToast("目录扫描失败", "error");
     setText("cleanupSummary", "扫描失败");
   } finally {
-    clearTimeout(timeoutTimer);
-    if (state.cleanupScanAbortController === controller) {
-      state.cleanupScanAbortController = null;
-    }
-    setCleanupScanRunning(false);
   }
 }
 
 function stopCleanupScan() {
-  const controller = state.cleanupScanAbortController;
-  if (!controller) {
+  const jobID = String(state.cleanupScanJobId || "").trim();
+  if (!jobID) {
     showAppToast("当前没有进行中的扫描", "warning");
     return;
   }
-  try {
-    controller.abort();
-  } catch (_) {
-    // ignore
-  }
+  fetch(`/api/cleanup/scan-jobs/${encodeURIComponent(jobID)}/cancel`, { method: "POST" }).catch((err) => {
+    console.error("cancel cleanup scan failed", err);
+  });
+  stopCleanupScanPolling();
+  state.cleanupScanJobId = "";
+  setCleanupScanRunning(false);
+  setText("cleanupSummary", "扫描停止中...");
+}
+
+function startCleanupScanPolling(meta) {
+  stopCleanupScanPolling();
+  const poll = async () => {
+    const jobID = String(state.cleanupScanJobId || "").trim();
+    if (!jobID) return;
+    try {
+      const res = await fetchWithTimeout(`/api/cleanup/scan-jobs/${encodeURIComponent(jobID)}`, 12000);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "load scan progress failed");
+      }
+      state.cleanupScanProgress = data.progress || null;
+      updateCleanupScanProgress(data.progress || {});
+      if (data.result) {
+        state.cleanupScan = data.result || {};
+        applyCleanupFilterAndRender();
+      }
+      if (data.status === "done" || data.status === "cancelled") {
+        stopCleanupScanPolling();
+        state.cleanupScanJobId = "";
+        setCleanupScanRunning(false);
+        setCleanupIndexerTag(meta?.fast_indexer || state.cleanupMeta?.fast_indexer || null);
+        showAppToast(data.status === "done" ? "扫描完成" : "扫描已停止", data.status === "done" ? "success" : "info");
+      }
+    } catch (err) {
+      console.error("poll cleanup scan failed", err);
+      stopCleanupScanPolling();
+      setCleanupScanRunning(false);
+      showAppToast("扫描进度获取失败", "error");
+    }
+  };
+  poll();
+  state.cleanupScanPollTimer = setInterval(poll, 900);
+}
+
+function stopCleanupScanPolling() {
+  if (!state.cleanupScanPollTimer) return;
+  clearInterval(state.cleanupScanPollTimer);
+  state.cleanupScanPollTimer = null;
+}
+
+function updateCleanupScanProgress(progress = {}) {
+  const bar = document.getElementById("cleanupScanProgressBar");
+  const text = document.getElementById("cleanupScanProgressText");
+  if (!bar || !text) return;
+  const running = !!progress.running || !!state.cleanupScanJobId;
+  const finished = !!progress.finished || (!running && !state.cleanupScanJobId);
+  const scanned = Number(progress.scanned_files || 0);
+  const matched = Number(progress.matched_files || 0);
+  const ratioBase = Math.max(1, scanned + matched + Number(progress.large_files || 0));
+  const width = finished ? 100 : Math.min(92, 8 + (ratioBase % 84));
+  bar.style.width = `${width}%`;
+  bar.classList.toggle("done", finished);
+  text.textContent = finished
+    ? `扫描完成 | 已扫文件 ${num(scanned)} | 命中 ${num(matched)}`
+    : `扫描中 | 当前目录 ${progress.current_root || "-"} | 已扫文件 ${num(scanned)} | 命中 ${num(matched)}`;
 }
 
 function stopCleanupGarbage() {
@@ -1695,6 +1889,7 @@ function applyCleanupFilterAndRender() {
   renderTable("cleanupLargeFileList", ["序号", "类型", "修改时间", "大小", "大小占比", "完整路径"], largeRows);
   renderCleanupTopBars(filtered, Number(scan.matched_total_bytes || scan.total_bytes || 0));
   renderCleanupSummaryTables(scan);
+  renderCleanupCharts(scan);
   updateCleanupKpi(scan, filtered, largeFiltered, threshold);
 
   const rootsText = (scan.roots || []).join(" , ") || "-";
@@ -1770,6 +1965,39 @@ function renderCleanupSummaryTables(scan) {
     `${Number(item.size_ratio || 0).toFixed(2)}%`,
   ]);
   renderTable("cleanupTypeSummaryList", ["类型", "文件数", "占用", "占比"], typeRows);
+}
+
+function renderCleanupCharts(scan) {
+  renderSimpleRatioChart("cleanupDirChart", Array.isArray(scan.directory_summary) ? scan.directory_summary.slice(0, 8).map((item) => ({
+    label: item.path || "-",
+    ratio: Number(item.size_ratio || 0),
+  })) : []);
+  renderSimpleRatioChart("cleanupTypeChart", Array.isArray(scan.type_summary) ? scan.type_summary.slice(0, 8).map((item) => ({
+    label: item.type || "none",
+    ratio: Number(item.size_ratio || 0),
+  })) : []);
+}
+
+function renderSimpleRatioChart(id, items) {
+  const box = document.getElementById(id);
+  if (!box) return;
+  const list = (items || []).filter((item) => Number(item.ratio || 0) > 0);
+  if (!list.length) {
+    box.innerHTML = '<div class="hint">暂无占比图表</div>';
+    return;
+  }
+  box.innerHTML = list
+    .map((item, idx) => {
+      const hue = (idx * 41) % 360;
+      return `
+        <div class="ratio-chart-item">
+          <span class="ratio-chart-label">${escapeHTML(shorten(item.label || "-", 28))}</span>
+          <span class="ratio-chart-bar"><i style="width:${Math.max(6, Number(item.ratio || 0)).toFixed(2)}%;background:hsl(${hue} 68% 52%)"></i></span>
+          <span class="ratio-chart-value">${Number(item.ratio || 0).toFixed(2)}%</span>
+        </div>
+      `;
+    })
+    .join("");
 }
 
 function renderCleanupGarbageTargets(targets) {
@@ -1910,6 +2138,12 @@ async function loadConfig() {
   const res = await fetchWithTimeout("/api/config", 10000);
   state.config = await res.json();
   state.logRules = state.config?.log_analysis?.rules || [];
+  state.dockerPageSize = Number(state.config?.system?.performance?.docker_default_page_size || state.dockerPageSize || 20);
+
+  if (state.config?.system?.site_title) {
+    document.title = state.config.system.site_title;
+  }
+  applySystemMenuVisibility();
 
   const select = document.getElementById("logRule");
   select.innerHTML = "<option value=\"\">常见问题规则</option>";
@@ -2138,7 +2372,7 @@ function renderMonitor(data) {
       return {
         rowClass: `disk-row ${usageClass}`,
         cells: [
-          x.path,
+          compactMountLabel(x.path),
           x.device || "-",
           x.fs_type || "-",
           `<span class="disk-usage-tag ${usageClass}">${fixed(usage)}%</span>`,
@@ -2153,6 +2387,7 @@ function renderMonitor(data) {
     }),
     true,
   );
+  renderDiskVolumeChart(data.disks || []);
 
   renderPortTable();
 
@@ -3045,14 +3280,52 @@ async function queryLogs(errorOnly, options = {}) {
 
   const items = Array.isArray(data?.items) ? [...data.items] : [];
   items.sort((a, b) => parseLogTimeValue(a?.time) - parseLogTimeValue(b?.time));
-  const lines = items.map((x) => `[${x.time}] [${x.level}] [${x.file}] ${x.message}`);
+  const levelCount = items.reduce((acc, item) => {
+    const key = String(item.level || "info").toLowerCase();
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+
+  const stats = document.getElementById("logStats");
+  if (stats) {
+    stats.innerHTML = `
+      <div class="log-stat-card"><strong>${num(items.length)}</strong><span>命中日志</span></div>
+      <div class="log-stat-card error"><strong>${num(levelCount.error || 0)}</strong><span>错误</span></div>
+      <div class="log-stat-card warn"><strong>${num(levelCount.warn || 0)}</strong><span>告警</span></div>
+      <div class="log-stat-card info"><strong>${num((levelCount.info || 0) + (levelCount.debug || 0))}</strong><span>信息/调试</span></div>
+    `;
+  }
 
   const box = document.getElementById("logResult");
   if (!box) return;
-  box.textContent = lines.join("\n");
-  if (fromRealtime || !silent) {
-    box.scrollTop = box.scrollHeight;
+  if (!items.length) {
+    const stats = document.getElementById("logStats");
+    if (stats) {
+      stats.innerHTML = `
+        <div class="log-stat-card"><strong>0</strong><span>命中日志</span></div>
+        <div class="log-stat-card error"><strong>0</strong><span>错误</span></div>
+        <div class="log-stat-card warn"><strong>0</strong><span>告警</span></div>
+        <div class="log-stat-card info"><strong>0</strong><span>信息/调试</span></div>
+      `;
+    }
+    box.innerHTML = '<div class="hint">当前条件下没有命中日志</div>';
+    return;
   }
+  box.innerHTML = items
+    .slice()
+    .reverse()
+    .map((item) => `
+      <article class="log-entry-card ${escapeHTML(String(item.level || "info").toLowerCase())}">
+        <header>
+          <span>${escapeHTML(formatTimeValue(item.time))}</span>
+          <span>${escapeHTML(String(item.level || "info").toUpperCase())}</span>
+          <span title="${escapeHTML(item.file || "-")}">${escapeHTML(shorten(item.file || "-", 64))}</span>
+        </header>
+        <div class="log-entry-message">${escapeHTML(item.message || item.raw || "-")}</div>
+      </article>
+    `)
+    .join("");
+  if (fromRealtime || !silent) box.scrollTop = box.scrollHeight;
 }
 
 function parseLogTimeValue(raw) {
@@ -3162,6 +3435,13 @@ async function loadBackups() {
   const res = await fetchWithTimeout("/api/backups", 10000);
   const data = await res.json();
   if (!res.ok) return;
+  if (!state.backupSelectedSources.length && Array.isArray(data?.config?.files)) {
+    state.backupSelectedSources = [...data.config.files];
+  }
+  if (!document.getElementById("backupTarget")?.value && data?.config?.storage_path) {
+    document.getElementById("backupTarget").value = data.config.storage_path;
+  }
+  renderBackupSources();
   const rows = (data.items || []).map((x) => [
     x.id,
     x.type,
@@ -3982,21 +4262,21 @@ function formatDuration(seconds) {
 
 function bytes(v) {
   const n = Number(v || 0);
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 ** 2) return `${(n / 1024).toFixed(1)} KB`;
-  if (n < 1024 ** 3) return `${(n / 1024 ** 2).toFixed(1)} MB`;
-  if (n < 1024 ** 4) return `${(n / 1024 ** 3).toFixed(1)} GB`;
-  return `${(n / 1024 ** 4).toFixed(1)} TB`;
+  if (n < 1024) return `${formatUpTo2(n)} B`;
+  if (n < 1024 ** 2) return `${formatUpTo2(n / 1024)} KB`;
+  if (n < 1024 ** 3) return `${formatUpTo2(n / 1024 ** 2)} MB`;
+  if (n < 1024 ** 4) return `${formatUpTo2(n / 1024 ** 3)} GB`;
+  return `${formatUpTo2(n / 1024 ** 4)} TB`;
 }
 
 function rateBytes(v) {
   const n = Number(v || 0);
-  if (!Number.isFinite(n) || n <= 0) return "0.00 B";
-  if (n < 1024) return `${n.toFixed(2)} B`;
-  if (n < 1024 ** 2) return `${(n / 1024).toFixed(2)} KB`;
-  if (n < 1024 ** 3) return `${(n / 1024 ** 2).toFixed(2)} MB`;
-  if (n < 1024 ** 4) return `${(n / 1024 ** 3).toFixed(2)} GB`;
-  return `${(n / 1024 ** 4).toFixed(2)} TB`;
+  if (!Number.isFinite(n) || n <= 0) return "0 B";
+  if (n < 1024) return `${formatUpTo2(n)} B`;
+  if (n < 1024 ** 2) return `${formatUpTo2(n / 1024)} KB`;
+  if (n < 1024 ** 3) return `${formatUpTo2(n / 1024 ** 2)} MB`;
+  if (n < 1024 ** 4) return `${formatUpTo2(n / 1024 ** 3)} GB`;
+  return `${formatUpTo2(n / 1024 ** 4)} TB`;
 }
 
 function num(v) {
@@ -4005,6 +4285,12 @@ function num(v) {
 
 function fixed(v) {
   return Number(v || 0).toFixed(1);
+}
+
+function formatUpTo2(v) {
+  const n = Number(v || 0);
+  if (!Number.isFinite(n)) return "0";
+  return n.toFixed(2).replace(/\.?0+$/, "");
 }
 
 function shorten(raw, max) {
@@ -4127,3 +4413,1090 @@ function escapeHTML(raw) {
     .replaceAll("'", "&#39;");
 }
 
+function debounceRuntimeLogReload() {
+  if (runtimeLogDebounceTimer) clearTimeout(runtimeLogDebounceTimer);
+  runtimeLogDebounceTimer = setTimeout(() => loadRuntimeLogs(true), 280);
+}
+
+function applySystemMenuVisibility() {
+  const visibility = state.config?.system?.menu_visibility || {};
+  document.querySelectorAll(".menu[data-section]").forEach((btn) => {
+    const section = String(btn.dataset.section || "").trim();
+    const enabled = section === "system" ? true : visibility[section] !== false;
+    btn.classList.toggle("hidden", !enabled);
+  });
+  document.querySelectorAll(".panel").forEach((panel) => {
+    const enabled = panel.id === "system" ? true : visibility[panel.id] !== false;
+    panel.classList.toggle("hidden-by-config", !enabled);
+    if (!enabled) panel.style.display = "none";
+  });
+  const activeBtn = document.querySelector(".menu.active:not(.hidden)");
+  if (!activeBtn) {
+    const fallbackBtn = document.querySelector(".menu[data-section]:not(.hidden)");
+    if (fallbackBtn) {
+      fallbackBtn.classList.add("active");
+      switchSection(fallbackBtn.dataset.section);
+    }
+  }
+}
+
+async function applySystemConfigForm() {
+  if (!state.config) return;
+  setInputValue("systemSiteTitle", state.config?.system?.site_title || "");
+  setInputValue("systemEnvironment", state.config?.system?.environment || "");
+  setInputValue("systemOwner", state.config?.system?.owner || "");
+  setInputValue("systemListen", state.config?.core?.web?.listen || "");
+  setInputValue("systemDefaultShell", state.config?.system?.default_shell || "");
+  setInputValue("systemDefaultWorkDir", state.config?.system?.default_work_dir || "");
+  setInputValue("systemRefreshSeconds", state.config?.monitor?.refresh_seconds || 5);
+  setInputValue("systemRuntimeLogPath", state.config?.system?.runtime_logs?.file_path || "");
+  setInputValue("systemRuntimeLogMaxEntries", state.config?.system?.runtime_logs?.max_entries || 3000);
+  setInputValue("systemMaxConcurrentTasks", state.config?.system?.performance?.max_concurrent_tasks || 4);
+  setInputValue("systemCleanupProgressInterval", state.config?.system?.performance?.cleanup_progress_interval_ms || 300);
+  setInputValue("systemDockerPageSize", state.config?.system?.performance?.docker_default_page_size || 20);
+  renderSystemMenuVisibility();
+}
+
+function renderSystemMenuVisibility() {
+  const box = document.getElementById("systemMenuVisibility");
+  if (!box) return;
+  const visibility = state.config?.system?.menu_visibility || {};
+  const labels = {
+    monitor: "系统监控",
+    logs: "日志分析",
+    traffic: "进程流量",
+    "traffic-capture": "数据包抓包",
+    repair: "修复工具",
+    backup: "数据备份",
+    cleanup: "数据清理",
+    docker: "Docker管理",
+    cicd: "CI/CD",
+    system: "系统管理",
+  };
+  box.innerHTML = Object.entries(labels)
+    .map(([key, label]) => {
+      const checked = visibility[key] !== false ? "checked" : "";
+      const disabled = key === "system" ? "disabled" : "";
+      const title = key === "system" ? 'title="系统管理为保底入口，固定显示"' : "";
+      return `<label ${title}><input type="checkbox" class="system-menu-toggle" value="${key}" ${checked} ${disabled}>${label}</label>`;
+    })
+    .join("");
+}
+
+async function saveSystemConfig() {
+  if (!state.config) return;
+  const next = JSON.parse(JSON.stringify(state.config));
+  next.system = next.system || {};
+  next.system.runtime_logs = next.system.runtime_logs || {};
+  next.system.performance = next.system.performance || {};
+  next.core = next.core || {};
+  next.core.web = next.core.web || {};
+  next.monitor = next.monitor || {};
+
+  next.system.site_title = getInputValue("systemSiteTitle");
+  next.system.environment = getInputValue("systemEnvironment");
+  next.system.owner = getInputValue("systemOwner");
+  next.core.web.listen = getInputValue("systemListen");
+  next.system.default_shell = getInputValue("systemDefaultShell");
+  next.system.default_work_dir = getInputValue("systemDefaultWorkDir");
+  next.monitor.refresh_seconds = Number(getInputValue("systemRefreshSeconds")) || 5;
+  next.system.runtime_logs.file_path = getInputValue("systemRuntimeLogPath");
+  next.system.runtime_logs.max_entries = Number(getInputValue("systemRuntimeLogMaxEntries")) || 3000;
+  next.system.performance.max_concurrent_tasks = Number(getInputValue("systemMaxConcurrentTasks")) || 4;
+  next.system.performance.cleanup_progress_interval_ms = Number(getInputValue("systemCleanupProgressInterval")) || 300;
+  next.system.performance.docker_default_page_size = Number(getInputValue("systemDockerPageSize")) || 20;
+
+  const visibility = {};
+  document.querySelectorAll(".system-menu-toggle").forEach((input) => {
+    visibility[String(input.value || "")] = !!input.checked;
+  });
+  visibility.system = true;
+  next.system.menu_visibility = visibility;
+
+  const res = await fetch("/api/config", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(next),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    showAppToast(data.error || "保存系统配置失败", "error");
+    return;
+  }
+  state.config = next;
+  applySystemMenuVisibility();
+  await applySystemConfigForm();
+  showAppToast("系统配置已保存并同步到配置文件", "success");
+}
+
+async function loadRuntimeLogs(silent = false) {
+  const keyword = getInputValue("runtimeLogKeyword");
+  const level = getInputValue("runtimeLogLevel") || "all";
+  const query = new URLSearchParams({ limit: "400", keyword, level });
+  try {
+    const res = await fetchWithTimeout(`/api/system/runtime-logs?${query.toString()}`, 12000);
+    const data = await res.json();
+    if (!res.ok) {
+      if (!silent) showAppToast(data.error || "加载运行日志失败", "error");
+      return;
+    }
+    state.systemRuntimeLogs = Array.isArray(data.items) ? data.items : [];
+    renderRuntimeLogs(data.config || {});
+  } catch (err) {
+    console.error("load runtime logs failed", err);
+    if (!silent) showAppToast("加载运行日志失败", "error");
+  }
+}
+
+function renderRuntimeLogs(config = {}) {
+  const meta = document.getElementById("runtimeLogMeta");
+  if (meta) {
+    meta.textContent = `日志文件: ${config.file_path || "-"} | 缓存条数: ${num(config.max_entries || state.systemRuntimeLogs.length || 0)} | 当前显示: ${num(state.systemRuntimeLogs.length)}`;
+  }
+  const box = document.getElementById("runtimeLogList");
+  if (!box) return;
+  if (!state.systemRuntimeLogs.length) {
+    box.innerHTML = '<div class="hint">暂无运行日志</div>';
+    return;
+  }
+  box.innerHTML = state.systemRuntimeLogs
+    .map((item) => `
+      <article class="runtime-log-item ${escapeHTML(String(item.level || "info").toLowerCase())}">
+        <header>
+          <span>${escapeHTML(formatTimeValue(item.time))}</span>
+          <span>${escapeHTML(String(item.level || "info").toUpperCase())}</span>
+          <span>${escapeHTML(item.source || "runtime")}</span>
+        </header>
+        <div>${escapeHTML(item.text || "-")}</div>
+      </article>
+    `)
+    .join("");
+}
+
+function renderBackupSources() {
+  const box = document.getElementById("backupSourceList");
+  const summary = document.getElementById("backupSourceSummary");
+  const list = Array.isArray(state.backupSelectedSources) ? state.backupSelectedSources : [];
+  if (summary) {
+    summary.textContent = list.length ? `已选择 ${list.length} 个备份源目录` : "未选择备份源，默认使用配置文件中的源目录";
+  }
+  if (!box) return;
+  if (!list.length) {
+    box.innerHTML = '<span class="hint">当前未指定自定义备份源</span>';
+    return;
+  }
+  box.innerHTML = list
+    .map((path) => `<label><span>${escapeHTML(path)}</span><button class="btn sm danger" type="button" data-backup-remove="${encodeURIComponent(path)}">移除</button></label>`)
+    .join("");
+  box.querySelectorAll("button[data-backup-remove]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const path = decodeURIComponent(String(btn.dataset.backupRemove || ""));
+      state.backupSelectedSources = state.backupSelectedSources.filter((item) => item !== path);
+      renderBackupSources();
+    });
+  });
+}
+
+async function createDirectory(path) {
+  const res = await fetch("/api/fs/mkdir", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || "create directory failed");
+  }
+  return data.path;
+}
+
+async function loadFSRoots(force = false) {
+  if (!force && fsModalRoots.length) return fsModalRoots;
+  const res = await fetchWithTimeout("/api/fs/roots", 12000);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "load fs roots failed");
+  fsModalRoots = Array.isArray(data.items) ? data.items : [];
+  return fsModalRoots;
+}
+
+async function ensureFSTree(path) {
+  const key = String(path || "").trim();
+  if (state.fsTreeCache[key]) return state.fsTreeCache[key];
+  const res = await fetchWithTimeout(`/api/fs/tree?path=${encodeURIComponent(key)}`, 15000);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "load fs tree failed");
+  state.fsTreeCache[key] = Array.isArray(data.items) ? data.items.filter((item) => item.type === "directory") : [];
+  return state.fsTreeCache[key];
+}
+
+async function openDirectoryPicker(options = {}) {
+  fsModalConfirmHandler = typeof options.onConfirm === "function" ? options.onConfirm : null;
+  fsModalMulti = options.multi !== false;
+  fsModalAllowCreate = !!options.allowCreate;
+  fsModalTitle = options.title || "选择目录";
+  state.fsModalMode = options.mode || "";
+  state.fsModalSelected = Array.isArray(options.selected) ? [...options.selected] : [];
+  fsModalExpanded = new Set();
+
+  const roots = await loadFSRoots();
+  roots.forEach((root) => fsModalExpanded.add(root.path));
+  await Promise.all(roots.slice(0, 4).map((root) => ensureFSTree(root.path)));
+  renderDirectoryPickerModal();
+}
+
+function renderDirectoryPickerModal() {
+  const treeHTML = (nodes, depth = 0) =>
+    `<ul class="fs-tree-level depth-${depth}">${nodes
+      .map((node) => {
+        const path = String(node.path || "");
+        const encoded = encodeURIComponent(path);
+        const expanded = fsModalExpanded.has(path);
+        const checked = state.fsModalSelected.includes(path) ? "checked" : "";
+        const children = expanded ? state.fsTreeCache[path] || [] : [];
+        return `
+          <li class="fs-tree-node">
+            <div class="fs-tree-row">
+              <button class="btn sm fs-tree-toggle" type="button" data-fs-expand="${encoded}">${node.has_children ? (expanded ? "−" : "+") : "·"}</button>
+              <label class="fs-tree-label">
+                <input type="${fsModalMulti ? "checkbox" : "radio"}" name="fs-picker" data-fs-select="${encoded}" ${checked} />
+                <span title="${escapeHTML(path)}">${escapeHTML(node.name || path)}</span>
+              </label>
+            </div>
+            ${expanded && children.length ? treeHTML(children, depth + 1) : ""}
+          </li>
+        `;
+      })
+      .join("")}</ul>`;
+
+  const html = `
+    <section class="fs-picker">
+      <div class="fs-picker-toolbar">
+        <div class="hint">目录树支持多选勾选，可用于备份源、备份目标和清理扫描目录。</div>
+        ${fsModalAllowCreate ? '<button id="fsPickerCreateBtn" class="btn sm" type="button">新建目录</button>' : ""}
+      </div>
+      <div class="fs-picker-tree">${treeHTML(fsModalRoots)}</div>
+      <div class="fs-picker-selected">
+        <h4>已选目录</h4>
+        <div class="selector">${(state.fsModalSelected || []).map((path) => `<label>${escapeHTML(path)}</label>`).join("") || '<span class="hint">尚未选择目录</span>'}</div>
+      </div>
+      <div class="fs-picker-actions">
+        <button id="fsPickerCancelBtn" class="btn sm" type="button">取消</button>
+        <button id="fsPickerConfirmBtn" class="btn sm" type="button">确认选择</button>
+      </div>
+    </section>
+  `;
+  openModal(fsModalTitle, html);
+  document.querySelectorAll("[data-fs-expand]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const path = decodeURIComponent(String(btn.dataset.fsExpand || ""));
+      if (!path) return;
+      if (fsModalExpanded.has(path)) {
+        fsModalExpanded.delete(path);
+      } else {
+        fsModalExpanded.add(path);
+        await ensureFSTree(path);
+      }
+      renderDirectoryPickerModal();
+    });
+  });
+  document.querySelectorAll("[data-fs-select]").forEach((input) => {
+    input.addEventListener("change", (event) => {
+      const path = decodeURIComponent(String(event.target.dataset.fsSelect || ""));
+      if (!path) return;
+      if (fsModalMulti) {
+        if (event.target.checked) {
+          if (!state.fsModalSelected.includes(path)) state.fsModalSelected.push(path);
+        } else {
+          state.fsModalSelected = state.fsModalSelected.filter((item) => item !== path);
+        }
+      } else {
+        state.fsModalSelected = event.target.checked ? [path] : [];
+      }
+      renderDirectoryPickerModal();
+    });
+  });
+  document.getElementById("fsPickerCancelBtn")?.addEventListener("click", closeModal);
+  document.getElementById("fsPickerConfirmBtn")?.addEventListener("click", () => {
+    if (fsModalConfirmHandler) fsModalConfirmHandler([...state.fsModalSelected]);
+    closeModal();
+  });
+  document.getElementById("fsPickerCreateBtn")?.addEventListener("click", async () => {
+    const seed = state.fsModalSelected[0] || fsModalRoots[0]?.path || "";
+    const raw = prompt("请输入要创建的目录路径", seed);
+    if (!raw) return;
+    try {
+      const created = await createDirectory(raw);
+      const parent = created.includes("/") || created.includes("\\") ? created.replace(/[\\/][^\\/]+$/, "") : "";
+      if (parent) {
+        delete state.fsTreeCache[parent];
+        fsModalExpanded.add(parent);
+        await ensureFSTree(parent);
+      }
+      if (!state.fsModalSelected.includes(created)) {
+        state.fsModalSelected = fsModalMulti ? [...state.fsModalSelected, created] : [created];
+      }
+      renderDirectoryPickerModal();
+      showAppToast(`目录已创建: ${created}`, "success");
+    } catch (err) {
+      showAppToast(err.message || "创建目录失败", "error");
+    }
+  });
+}
+
+async function loadCICDData(silent = false) {
+  try {
+    const [pipelineRes, runsRes] = await Promise.all([
+      fetchWithTimeout("/api/cicd/pipelines", 12000),
+      fetchWithTimeout("/api/cicd/runs?limit=80", 12000),
+    ]);
+    const pipelineData = await pipelineRes.json();
+    const runsData = await runsRes.json();
+    if (!pipelineRes.ok) throw new Error(pipelineData.error || "load pipelines failed");
+    if (!runsRes.ok) throw new Error(runsData.error || "load runs failed");
+    state.cicdPipelines = Array.isArray(pipelineData.pipelines) ? pipelineData.pipelines : [];
+    state.cicdRuns = Array.isArray(runsData.items) ? runsData.items : [];
+    renderCICDPipelineCards();
+    renderCICDRunTable();
+    if (state.cicdCurrentRunId) {
+      loadCICDRunDetail(state.cicdCurrentRunId, true);
+    }
+  } catch (err) {
+    console.error("load cicd data failed", err);
+    if (!silent) showAppToast("加载 CI/CD 数据失败", "error");
+  }
+}
+
+function renderCICDPipelineCards() {
+  const box = document.getElementById("cicdPipelineCards");
+  if (!box) return;
+  if (!state.cicdPipelines.length) {
+    box.innerHTML = '<div class="hint">暂无流水线，请先创建。</div>';
+    return;
+  }
+  box.innerHTML = state.cicdPipelines
+    .map((item) => `
+      <article class="cicd-pipeline-card">
+        <header>
+          <div>
+            <h4>${escapeHTML(item.name || item.id || "-")}</h4>
+            <p>${escapeHTML(item.description || "无描述")}</p>
+          </div>
+          <span class="badge ${item.enabled === false ? "down" : "up"}">${item.enabled === false ? "停用" : "启用"}</span>
+        </header>
+        <div class="meta">工作目录: ${escapeHTML(item.work_dir || ".")} | Shell: ${escapeHTML(item.shell || "-")} | 阶段数: ${num((item.stages || []).length)}</div>
+        <div class="ops">
+          <button class="btn sm" type="button" data-cicd-run="${item.id}">运行</button>
+          <button class="btn sm" type="button" data-cicd-edit="${item.id}">编辑</button>
+          <button class="btn sm danger" type="button" data-cicd-delete="${item.id}">删除</button>
+        </div>
+      </article>
+    `)
+    .join("");
+  box.querySelectorAll("[data-cicd-run]").forEach((btn) => btn.addEventListener("click", () => runPipeline(btn.dataset.cicdRun)));
+  box.querySelectorAll("[data-cicd-edit]").forEach((btn) => btn.addEventListener("click", () => {
+    const pipeline = state.cicdPipelines.find((item) => item.id === btn.dataset.cicdEdit);
+    openCICDPipelineEditor(pipeline || null);
+  }));
+  box.querySelectorAll("[data-cicd-delete]").forEach((btn) => btn.addEventListener("click", () => deletePipeline(btn.dataset.cicdDelete)));
+}
+
+function renderCICDRunTable() {
+  const rows = state.cicdRuns.map((item) => [
+    item.id,
+    item.name || item.pipeline_id || "-",
+    item.branch || "-",
+    `<span class="badge ${statusClass(item.status)}">${escapeHTML(localizeTaskStatus(item.status || "-"))}</span>`,
+    item.started_at || "-",
+    item.finished_at || "-",
+    `<button class="btn sm" type="button" data-cicd-log="${item.id}">查看日志</button>`,
+  ]);
+  renderTable("cicdRunTable", ["ID", "流水线", "分支", "状态", "开始时间", "结束时间", "操作"], rows, true);
+  document.querySelectorAll("[data-cicd-log]").forEach((btn) => btn.addEventListener("click", () => loadCICDRunDetail(Number(btn.dataset.cicdLog || 0))));
+}
+
+function openCICDPipelineEditor(pipeline = null) {
+  const envText = Object.entries(pipeline?.env || {}).map(([k, v]) => `${k}=${v}`).join("\n");
+  const stagesText = (pipeline?.stages || []).map((stage) => `${stage.name || ""}::${stage.command || ""}${stage.continue_on_error ? "::continue" : ""}`).join("\n");
+  const html = `
+    <section class="cicd-editor">
+      <div class="row">
+        <input id="cicdEditName" class="input" placeholder="流水线名称" value="${escapeHTML(pipeline?.name || "")}" />
+        <input id="cicdEditID" class="input" placeholder="流水线ID" value="${escapeHTML(pipeline?.id || "")}" ${pipeline ? "disabled" : ""} />
+      </div>
+      <div class="row">
+        <input id="cicdEditDescription" class="input" placeholder="描述" value="${escapeHTML(pipeline?.description || "")}" />
+        <input id="cicdEditBranch" class="input" placeholder="分支，例如 master / main" value="${escapeHTML(pipeline?.branch || "")}" />
+      </div>
+      <div class="row">
+        <input id="cicdEditShell" class="input" placeholder="sh / bash / powershell" value="${escapeHTML(pipeline?.shell || state.config?.system?.default_shell || "")}" />
+        <input id="cicdEditWorkDir" class="input" placeholder="工作目录" value="${escapeHTML(pipeline?.work_dir || ".")}" />
+        <input id="cicdEditTimeout" class="input" placeholder="超时分钟" value="${escapeHTML(String(pipeline?.timeout_minutes || 30))}" />
+      </div>
+      <div class="row">
+        <textarea id="cicdEditEnv" class="input" rows="5" style="width:100%;" placeholder="环境变量，每行 KEY=VALUE">${escapeHTML(envText)}</textarea>
+      </div>
+      <div class="row">
+        <textarea id="cicdEditStages" class="input" rows="8" style="width:100%;" placeholder="阶段定义，每行：阶段名::命令::continue">${escapeHTML(stagesText)}</textarea>
+      </div>
+      <div class="row">
+        <label><input id="cicdEditEnabled" type="checkbox" ${pipeline?.enabled === false ? "" : "checked"} /> 启用</label>
+        <button id="cicdSavePipelineBtn" class="btn" type="button">保存流水线</button>
+      </div>
+    </section>
+  `;
+  openModal(pipeline ? "编辑流水线" : "新建流水线", html);
+  document.getElementById("cicdSavePipelineBtn")?.addEventListener("click", async () => {
+    const payload = buildPipelinePayloadFromEditor(pipeline);
+    if (!payload) return;
+    const url = pipeline ? `/api/cicd/pipelines/${encodeURIComponent(pipeline.id)}` : "/api/cicd/pipelines";
+    const method = pipeline ? "PUT" : "POST";
+    const res = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showAppToast(data.error || "保存流水线失败", "error");
+      return;
+    }
+    closeModal();
+    await loadCICDData(true);
+    showAppToast("流水线已保存", "success");
+  });
+}
+
+function buildPipelinePayloadFromEditor(existing) {
+  const name = getInputValue("cicdEditName");
+  const id = existing?.id || getInputValue("cicdEditID");
+  if (!name) {
+    showAppToast("请填写流水线名称", "warning");
+    return null;
+  }
+  const env = {};
+  getInputValue("cicdEditEnv")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .forEach((line) => {
+      const idx = line.indexOf("=");
+      if (idx <= 0) return;
+      env[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+    });
+  const stages = getInputValue("cicdEditStages")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [stageName, command, flag] = line.split("::");
+      return {
+        name: (stageName || "").trim(),
+        command: (command || "").trim(),
+        continue_on_error: (flag || "").trim().toLowerCase() === "continue",
+      };
+    })
+    .filter((item) => item.command);
+  return {
+    id,
+    name,
+    description: getInputValue("cicdEditDescription"),
+    branch: getInputValue("cicdEditBranch"),
+    shell: getInputValue("cicdEditShell"),
+    work_dir: getInputValue("cicdEditWorkDir"),
+    timeout_minutes: Number(getInputValue("cicdEditTimeout")) || 30,
+    env,
+    stages,
+    enabled: !!document.getElementById("cicdEditEnabled")?.checked,
+  };
+}
+
+async function runPipeline(id) {
+  if (!id) return;
+  const res = await fetch(`/api/cicd/pipelines/${encodeURIComponent(id)}/run`, { method: "POST" });
+  const data = await res.json();
+  if (!res.ok) {
+    showAppToast(data.error || "运行流水线失败", "error");
+    return;
+  }
+  state.cicdCurrentRunId = Number(data.run_id || 0);
+  await loadCICDData(true);
+  startCICDRunPolling(state.cicdCurrentRunId);
+  showAppToast("流水线已启动", "success");
+}
+
+async function deletePipeline(id) {
+  if (!id || !confirm(`确认删除流水线 ${id} ?`)) return;
+  const res = await fetch(`/api/cicd/pipelines/${encodeURIComponent(id)}`, { method: "DELETE" });
+  const data = await res.json();
+  if (!res.ok) {
+    showAppToast(data.error || "删除流水线失败", "error");
+    return;
+  }
+  await loadCICDData(true);
+  showAppToast("流水线已删除", "success");
+}
+
+async function loadCICDRunDetail(runID, silent = false) {
+  if (!runID) return;
+  const res = await fetchWithTimeout(`/api/cicd/runs/${encodeURIComponent(runID)}`, 12000);
+  const data = await res.json();
+  if (!res.ok) {
+    if (!silent) showAppToast(data.error || "加载流水线日志失败", "error");
+    return;
+  }
+  state.cicdCurrentRunId = Number(runID);
+  const viewer = document.getElementById("cicdRunOutput");
+  if (viewer) viewer.textContent = data.output || "暂无输出";
+  if (String(data.status || "").toLowerCase() === "running") {
+    startCICDRunPolling(runID);
+  } else {
+    stopCICDRunPolling();
+  }
+}
+
+function startCICDRunPolling(runID) {
+  stopCICDRunPolling();
+  if (!runID) return;
+  state.cicdRunTimer = setInterval(async () => {
+    await loadCICDRunDetail(runID, true);
+    await loadCICDData(true);
+  }, 2000);
+}
+
+function stopCICDRunPolling() {
+  if (!state.cicdRunTimer) return;
+  clearInterval(state.cicdRunTimer);
+  state.cicdRunTimer = null;
+}
+
+async function stopCurrentCICDRun() {
+  if (!state.cicdCurrentRunId) {
+    showAppToast("当前没有运行中的流水线", "warning");
+    return;
+  }
+  const res = await fetch(`/api/cicd/runs/${encodeURIComponent(state.cicdCurrentRunId)}/stop`, { method: "POST" });
+  const data = await res.json();
+  if (!res.ok) {
+    showAppToast(data.error || "停止流水线失败", "error");
+    return;
+  }
+  showAppToast("已发送停止指令", "success");
+}
+
+function switchDockerTab(tab) {
+  state.dockerTab = tab === "images" ? "images" : "containers";
+  document.getElementById("dockerContainerTable")?.classList.toggle("hidden", state.dockerTab !== "containers");
+  document.getElementById("dockerImageTable")?.classList.toggle("hidden", state.dockerTab !== "images");
+  document.getElementById("dockerTabContainers")?.classList.toggle("active", state.dockerTab === "containers");
+  document.getElementById("dockerTabImages")?.classList.toggle("active", state.dockerTab === "images");
+  if (state.dockerTab === "images") {
+    loadDockerImages(true);
+  }
+}
+
+async function loadDockerImages(force = false) {
+  if (!force && state.dockerImages.length) {
+    renderDockerImageTable();
+    return state.dockerImages;
+  }
+  const keyword = String(document.getElementById("dockerSearch")?.value || "").trim();
+  const res = await fetchWithTimeout(`/api/docker/images?keyword=${encodeURIComponent(keyword)}`, 20000);
+  const data = await res.json();
+  if (!res.ok) {
+    showAppToast(data.error || "加载 Docker 镜像失败", "error");
+    return state.dockerImages;
+  }
+  state.dockerImages = Array.isArray(data.items) ? data.items : [];
+  renderDockerImageTable();
+  return state.dockerImages;
+}
+
+function renderDockerImageTable() {
+  const rows = state.dockerImages.map((item) => [
+    `<input type="checkbox" class="docker-image-select" value="${escapeHTML(item.id || "")}" ${state.dockerSelectedImageIDs.includes(item.id) ? "checked" : ""}>`,
+    item.display_name || item.repository || item.id || "-",
+    item.id || "-",
+    item.digest || "-",
+    item.created_at || "-",
+    item.size || "-",
+    `<button class="btn sm" type="button" data-docker-image-inspect="${escapeHTML(item.id || "")}">详情</button>`,
+  ]);
+  renderTable("dockerImageTable", ["选择", "镜像", "ID", "Digest", "创建时间", "大小", "操作"], rows, true);
+  syncDockerSelections();
+}
+
+async function runDockerBatchAction(action) {
+  if (!state.dockerSelectedContainerIDs.length) {
+    showAppToast("请先勾选容器", "warning");
+    return;
+  }
+  const payload = {
+    ids: state.dockerSelectedContainerIDs,
+    action,
+    remove_volumes: false,
+  };
+  const res = await fetch("/api/docker/containers/batch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    showAppToast(data.error || "批量容器操作失败", "error");
+    return;
+  }
+  await loadDockerDashboard(true);
+  showAppToast(`批量容器操作已完成: ${action}`, "success");
+}
+
+async function runDockerImageBatchAction(action) {
+  if (!state.dockerSelectedImageIDs.length) {
+    showAppToast("请先勾选镜像", "warning");
+    return;
+  }
+  const res = await fetch("/api/docker/images/batch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids: state.dockerSelectedImageIDs, action, force: true }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    showAppToast(data.error || "批量镜像操作失败", "error");
+    return;
+  }
+  await loadDockerImages(true);
+  showAppToast(`批量镜像操作已完成: ${action}`, "success");
+}
+
+async function handleDockerImageTableClick(event) {
+  const inspectBtn = event.target.closest("[data-docker-image-inspect]");
+  if (inspectBtn) {
+    const id = String(inspectBtn.dataset.dockerImageInspect || "").trim();
+    if (!id) return;
+    const res = await fetchWithTimeout(`/api/docker/images/${encodeURIComponent(id)}/inspect`, 20000);
+    const data = await res.json();
+    if (!res.ok) {
+      showAppToast(data.error || "加载镜像详情失败", "error");
+      return;
+    }
+    openModal(`镜像详情 - ${id}`, `<pre class="log-view compact">${escapeHTML(JSON.stringify(data.inspect, null, 2))}</pre>`);
+    return;
+  }
+  const checkbox = event.target.closest(".docker-image-select");
+  if (checkbox) {
+    syncDockerSelections();
+  }
+}
+
+function syncDockerSelections() {
+  state.dockerSelectedContainerIDs = Array.from(document.querySelectorAll(".docker-container-select:checked"))
+    .map((node) => String(node.value || "").trim())
+    .filter(Boolean);
+  state.dockerSelectedImageIDs = Array.from(document.querySelectorAll(".docker-image-select:checked"))
+    .map((node) => String(node.value || "").trim())
+    .filter(Boolean);
+}
+
+async function loadTrafficData(force = false) {
+  let data = null;
+  try {
+    const res = await fetchWithTimeout("/api/traffic?packet_limit=300&http_limit=120", 20000);
+    data = await res.json();
+    if (!res.ok) {
+      showAppToast(data.error || "加载流量分析失败", "error");
+      return state.trafficSnapshot;
+    }
+  } catch (err) {
+    console.error("load traffic data failed", err);
+    if (force) showAppToast("加载流量分析失败", "error");
+    return state.trafficSnapshot;
+  }
+  state.trafficSnapshot = data || null;
+  state.trafficInterfaces = Array.isArray(data?.interfaces) ? data.interfaces : [];
+  renderTrafficInterfaceOptions();
+  renderTrafficStatusSummary();
+  renderTrafficConnectionTable();
+  renderTrafficPacketTable();
+  renderTrafficHTTPTable();
+  return state.trafficSnapshot;
+}
+
+function startTrafficPolling() {
+  stopTrafficPolling();
+  state.trafficPollTimer = setInterval(() => {
+    loadTrafficData(false);
+  }, 2000);
+}
+
+function stopTrafficPolling() {
+  if (!state.trafficPollTimer) return;
+  clearInterval(state.trafficPollTimer);
+  state.trafficPollTimer = null;
+}
+
+function renderTrafficInterfaceOptions() {
+  const select = document.getElementById("trafficInterface");
+  if (!select) return;
+  const items = orderTrafficInterfaces(Array.isArray(state.trafficInterfaces) ? state.trafficInterfaces : []);
+  const active = String(state.trafficSnapshot?.status?.interface_name || "").trim();
+  const current = String(select.value || "").trim();
+  const preferred = active || current || items[0]?.name || "";
+  select.innerHTML = "";
+  items.forEach((item) => {
+    const op = document.createElement("option");
+    op.value = item.name || "";
+    op.textContent = buildTrafficInterfaceLabel(item);
+    op.disabled = !item.up;
+    if ((item.name || "") === active || (!active && (item.name || "") === preferred)) op.selected = true;
+    select.appendChild(op);
+  });
+}
+
+function renderTrafficStatusSummary() {
+  const status = state.trafficSnapshot?.status || {};
+  document.querySelectorAll("[data-traffic-status-summary]").forEach((el) => {
+    if (!status.active) {
+      el.textContent = "抓包未启动。选择网卡后可开始实时流量采集与 HTTP 明文解码。";
+    } else {
+      const parts = [
+        `抓包接口 ${status.interface_name || "-"}`,
+        `启动时间 ${formatTimeValue(status.started_at || Date.now())}`,
+        `本机地址 ${Array.isArray(status.local_addresses) ? status.local_addresses.join(", ") : "-"}`,
+      ];
+      el.textContent = parts.join(" | ");
+    }
+    if (status.error) {
+      el.textContent += ` | ${status.error}`;
+    }
+  });
+  setTrafficKPI("connections", num(status.connections || state.trafficSnapshot?.connections?.length || 0));
+  setTrafficKPI("packets", num(status.packet_count || state.trafficSnapshot?.packets?.length || 0));
+  setTrafficKPI("http", num(status.http_message_count || state.trafficSnapshot?.http?.length || 0));
+  setTrafficKPI("interface", status.interface_name || "-");
+}
+
+function renderTrafficConnectionTable() {
+  const keyword = String(document.getElementById("trafficConnectionSearch")?.value || "").trim().toLowerCase();
+  const list = Array.isArray(state.trafficSnapshot?.connections) ? state.trafficSnapshot.connections : [];
+  const rows = list
+    .filter((item) => {
+      if (!keyword) return true;
+      const searchable = [
+        item.process_name,
+        item.pid,
+        item.local_ip,
+        item.local_port,
+        item.remote_ip,
+        item.remote_port,
+        item.protocol,
+        item.status,
+      ].join(" ").toLowerCase();
+      return searchable.includes(keyword);
+    })
+    .slice(0, 200)
+    .map((item) => [
+      item.process_name || "-",
+      item.pid || "-",
+      item.protocol || "-",
+      `${item.local_ip || "-"}:${item.local_port || 0}`,
+      item.remote_ip ? `${item.remote_ip}:${item.remote_port || 0}` : "-",
+      item.status || "-",
+      `${bytes(item.bytes_in || 0)} / ${bytes(item.bytes_out || 0)}`,
+      `${num(item.packets_in || 0)} / ${num(item.packets_out || 0)}`,
+      item.last_seen ? formatTimeValue(item.last_seen) : "-",
+    ]);
+  renderTable("trafficConnectionTable", ["进程", "PID", "协议", "本地地址", "远端地址", "状态", "入/出流量", "入/出包数", "最后活跃"], rows);
+}
+
+function renderTrafficPacketTable() {
+  const keyword = String(document.getElementById("trafficPacketSearch")?.value || "").trim().toLowerCase();
+  const list = Array.isArray(state.trafficSnapshot?.packets) ? state.trafficSnapshot.packets : [];
+  const rows = list
+    .filter((item) => {
+      if (!keyword) return true;
+      const searchable = [
+        item.process_name,
+        item.pid,
+        item.protocol,
+        item.app_protocol,
+        item.src_ip,
+        item.src_port,
+        item.dst_ip,
+        item.dst_port,
+        item.info,
+        item.payload_preview,
+      ].join(" ").toLowerCase();
+      return searchable.includes(keyword);
+    })
+    .slice(0, 300)
+    .map((item) => [
+      formatTimeValue(item.timestamp),
+      item.process_name || "-",
+      item.pid || "-",
+      item.direction || "-",
+      `${item.protocol || "-"} / ${item.app_protocol || "-"}`,
+      `${item.src_ip || "-"}:${item.src_port || 0}`,
+      `${item.dst_ip || "-"}:${item.dst_port || 0}`,
+      bytes(item.length || 0),
+      item.info || "-",
+      `<button class="btn sm" type="button" data-traffic-packet="${escapeHTML(item.id || "")}">详情</button>`,
+    ]);
+  renderTable("trafficPacketTable", ["时间", "进程", "PID", "方向", "协议", "源地址", "目标地址", "长度", "说明", "操作"], rows, true);
+}
+
+function renderTrafficHTTPTable() {
+  const list = Array.isArray(state.trafficSnapshot?.http) ? state.trafficSnapshot.http : [];
+  const rows = list.slice(0, 160).map((item) => [
+    formatTimeValue(item.timestamp),
+    item.process_name || "-",
+    item.pid || "-",
+    item.method || item.status || "-",
+    item.host || "-",
+    item.url || "-",
+    item.content_type || "-",
+    `<button class="btn sm" type="button" data-traffic-http="${escapeHTML(item.id || "")}">查看明文</button>`,
+  ]);
+  renderTable("trafficHTTPTable", ["时间", "进程", "PID", "请求/状态", "Host", "URL", "内容类型", "操作"], rows, true);
+}
+
+async function startTrafficCapture() {
+  try {
+    const select = document.getElementById("trafficInterface");
+    const ordered = orderTrafficInterfaces(Array.isArray(state.trafficInterfaces) ? state.trafficInterfaces : []);
+    let iface = String(select?.value || "").trim();
+    if (!iface) iface = ordered[0]?.name || "";
+    if (!iface) {
+      showAppToast("未发现可用抓包网卡", "error");
+      return;
+    }
+
+    let result = await requestStartTrafficCapture(iface);
+    if (!result.ok) {
+      const fallback = ordered.find((item) => item.name && item.name !== iface && item.up)?.name || "";
+      if (fallback) {
+        result = await requestStartTrafficCapture(fallback);
+        if (result.ok && select) {
+          select.value = fallback;
+          showAppToast(`所选网卡不可用，已切换到 ${fallback}`, "warning");
+        }
+      }
+    }
+    if (!result.ok) {
+      showAppToast(result.data?.error || "启动抓包失败", "error");
+      return;
+    }
+    await loadTrafficData(true);
+    startTrafficPolling();
+    showAppToast("流量抓包已启动", "success");
+  } catch (err) {
+    console.error("start traffic capture failed", err);
+    showAppToast("启动抓包失败", "error");
+  }
+}
+
+async function stopTrafficCapture() {
+  try {
+    const res = await fetch("/api/traffic/capture/stop", { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) {
+      showAppToast(data.error || "停止抓包失败", "error");
+      return;
+    }
+    await loadTrafficData(true);
+    showAppToast("流量抓包已停止", "success");
+  } catch (err) {
+    console.error("stop traffic capture failed", err);
+    showAppToast("停止抓包失败", "error");
+  }
+}
+
+async function requestStartTrafficCapture(iface) {
+  const res = await fetch("/api/traffic/capture/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ interface: iface }),
+  });
+  const data = await res.json();
+  return { ok: res.ok, data };
+}
+
+function setTrafficKPI(key, value) {
+  document.querySelectorAll(`[data-traffic-kpi="${key}"]`).forEach((node) => {
+    node.textContent = value;
+  });
+}
+
+function buildTrafficInterfaceLabel(item) {
+  const name = item?.name || "-";
+  const tags = [];
+  if (isPhysicalTrafficInterface(name)) tags.push("推荐");
+  if (item?.loopback) tags.push("loopback");
+  if (!item?.up) tags.push("down");
+  const tagText = tags.length ? ` [${tags.join(" / ")}]` : "";
+  const addrText = Array.isArray(item?.addresses) && item.addresses.length ? ` - ${item.addresses.join(", ")}` : "";
+  return `${name}${tagText}${addrText}`;
+}
+
+function orderTrafficInterfaces(items) {
+  return [...items].sort((a, b) => {
+    const diff = trafficInterfaceScore(b) - trafficInterfaceScore(a);
+    if (diff !== 0) return diff;
+    return String(a?.name || "").localeCompare(String(b?.name || ""));
+  });
+}
+
+function trafficInterfaceScore(item) {
+  const name = String(item?.name || "").trim().toLowerCase();
+  const addrs = Array.isArray(item?.addresses) ? item.addresses : [];
+  let score = 0;
+  if (isPhysicalTrafficInterface(name)) score += 1000;
+  if (item?.up) score += 300;
+  if (hasTrafficRoutableAddress(addrs)) score += 200;
+  else if (hasTrafficUsableAddress(addrs, !!item?.loopback)) score += 80;
+  if (item?.loopback) score += 120;
+  if (isVirtualTrafficInterface(name)) score -= 200;
+  return score;
+}
+
+function isPhysicalTrafficInterface(name) {
+  return /^(en\d+|eth\d+|eno\d+|ens\d+|enp\d+|wlan\d+|wlp\d+|wl[a-z0-9]+)$/i.test(String(name || "").trim());
+}
+
+function isVirtualTrafficInterface(name) {
+  return /^(lo\d*|bridge\d*|docker\d*|br-|veth|utun\d*|awdl\d*|llw\d*|gif\d*|stf\d*|p2p\d*|tap\d*|tun\d*|vmnet\d*|xhc\d*)/i.test(String(name || "").trim());
+}
+
+function hasTrafficRoutableAddress(addrs) {
+  return addrs.some((addr) => {
+    const value = String(addr || "").trim().toLowerCase();
+    if (!value) return false;
+    return !value.startsWith("127.") && value !== "::1" && !value.startsWith("fe80:");
+  });
+}
+
+function hasTrafficUsableAddress(addrs, loopback) {
+  if (loopback) return addrs.length > 0;
+  return addrs.some((addr) => {
+    const value = String(addr || "").trim().toLowerCase();
+    return !!value && !value.startsWith("fe80:");
+  });
+}
+
+function handleTrafficPacketClick(event) {
+  const btn = event.target.closest("[data-traffic-packet]");
+  if (!btn) return;
+  const id = String(btn.dataset.trafficPacket || "").trim();
+  const item = (state.trafficSnapshot?.packets || []).find((row) => String(row.id || "") === id);
+  if (!item) return;
+  if (item.https || String(item.app_protocol || "").toLowerCase() === "https") {
+    showAppToast("HTTPS/TLS 明文解码暂不支持", "warning");
+    return;
+  }
+  const html = `
+    <section class="traffic-packet-detail">
+      <div class="system-detail-grid">
+        <section class="system-detail-block">
+          <h4>数据包元信息</h4>
+          ${renderTableHTML(["字段", "值"], [
+            ["时间", formatTimeValue(item.timestamp)],
+            ["进程", item.process_name || "-"],
+            ["PID", item.pid || "-"],
+            ["方向", item.direction || "-"],
+            ["协议", `${item.protocol || "-"} / ${item.app_protocol || "-"}`],
+            ["源地址", `${item.src_ip || "-"}:${item.src_port || 0}`],
+            ["目标地址", `${item.dst_ip || "-"}:${item.dst_port || 0}`],
+            ["长度", bytes(item.length || 0)],
+            ["说明", item.info || "-"],
+          ], true)}
+        </section>
+      </div>
+      <pre class="log-view compact">${escapeHTML(item.decoded_text || item.payload_preview || "无明文内容")}</pre>
+    </section>
+  `;
+  openModal("数据包详情", html);
+}
+
+function handleTrafficHTTPClick(event) {
+  const btn = event.target.closest("[data-traffic-http]");
+  if (!btn) return;
+  const id = String(btn.dataset.trafficHttp || "").trim();
+  const item = (state.trafficSnapshot?.http || []).find((row) => String(row.id || "") === id);
+  if (!item) return;
+  if (item.unsupported_reason) {
+    showAppToast(item.unsupported_reason, "warning");
+    return;
+  }
+  const headers = Object.entries(item.headers || {}).map(([k, v]) => [k, v]);
+  const html = `
+    <section class="traffic-http-detail">
+      <div class="system-detail-grid">
+        <section class="system-detail-block">
+          <h4>HTTP 元信息</h4>
+          ${renderTableHTML(["字段", "值"], [
+            ["时间", formatTimeValue(item.timestamp)],
+            ["进程", item.process_name || "-"],
+            ["PID", item.pid || "-"],
+            ["方向", item.direction || "-"],
+            ["Method", item.method || "-"],
+            ["Status", item.status || "-"],
+            ["URL", item.url || "-"],
+            ["Host", item.host || "-"],
+            ["协议", item.protocol || "-"],
+            ["内容类型", item.content_type || "-"],
+          ], true)}
+        </section>
+        <section class="system-detail-block">
+          <h4>请求头/响应头</h4>
+          ${renderTableHTML(["Header", "Value"], headers.length ? headers : [["-", "-"]], true)}
+        </section>
+      </div>
+      <pre class="log-view compact">${escapeHTML(item.raw || item.body || "无可解码内容")}</pre>
+    </section>
+  `;
+  openModal("HTTP 明文详情", html);
+}
+
+function compactMountLabel(path) {
+  const raw = String(path || "-").trim();
+  if (!raw) return "-";
+  if (/docker[\\/](volumes|overlay2|containers)/i.test(raw)) {
+    const match = raw.match(/docker[\\/](?:volumes|overlay2|containers)[\\/]+([^\\/]+)/i);
+    const token = match?.[1] ? shorten(match[1], 28) : "docker-volume";
+    return `<span class="mount-badge docker" title="${escapeHTML(raw)}">Docker 卷 · ${escapeHTML(token)}</span>`;
+  }
+  return `<span title="${escapeHTML(raw)}">${escapeHTML(shorten(raw, 42))}</span>`;
+}
+
+function renderDiskVolumeChart(disks) {
+  const box = document.getElementById("diskVolumeChart");
+  if (!box) return;
+  const dockerDisks = (Array.isArray(disks) ? disks : []).filter((item) => /docker[\\/]/i.test(String(item.path || "")));
+  if (!dockerDisks.length) {
+    box.innerHTML = '<div class="hint">未检测到 Docker 挂载卷</div>';
+    return;
+  }
+  const total = dockerDisks.reduce((sum, item) => sum + Number(item.used || 0), 0) || 1;
+  box.innerHTML = dockerDisks
+    .slice(0, 8)
+    .map((item) => {
+      const ratio = Math.max(8, (Number(item.used || 0) * 100) / total);
+      const label = String(item.path || "").split(/[\\/]/).slice(-2).join("/");
+      return `
+        <div class="disk-volume-item" title="${escapeHTML(item.path || "-")}">
+          <span class="disk-volume-label">${escapeHTML(shorten(label || item.path || "-", 28))}</span>
+          <span class="disk-volume-bar"><i style="width:${ratio.toFixed(2)}%"></i></span>
+          <span class="disk-volume-size">${escapeHTML(bytes(item.used || 0))}</span>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function setInputValue(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.value = value ?? "";
+}
+
+function getInputValue(id) {
+  return String(document.getElementById(id)?.value || "").trim();
+}

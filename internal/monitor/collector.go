@@ -441,7 +441,7 @@ func gatherTopProcesses(limit int) ([]ProcessInfo, int, int) {
 		totalThreads += int(t)
 		items = append(items, ProcessInfo{
 			PID:     p.Pid,
-			Name:    name,
+			Name:    displayProcessName(name, cmdline, exe),
 			CPU:     c,
 			Memory:  m,
 			Threads: t,
@@ -775,7 +775,7 @@ func gatherJVM(limit int) []ProcessInfo {
 		t, _ := p.NumThreads()
 		res = append(res, ProcessInfo{
 			PID:     p.Pid,
-			Name:    name,
+			Name:    displayProcessName(name, cmdline, exe),
 			CPU:     c,
 			Memory:  m,
 			Threads: t,
@@ -794,6 +794,85 @@ func gatherJVM(limit int) []ProcessInfo {
 func isJavaProcess(name, cmdline, exe string) bool {
 	low := strings.ToLower(name + " " + cmdline + " " + exe)
 	return strings.Contains(low, "java")
+}
+
+func displayProcessName(name, cmdline, exe string) string {
+	if isJavaProcess(name, cmdline, exe) {
+		if app := detectJavaAppName(cmdline); app != "" {
+			return app
+		}
+	}
+	name = strings.TrimSpace(name)
+	if name != "" {
+		return name
+	}
+	if exe != "" {
+		return filepath.Base(strings.TrimSpace(exe))
+	}
+	return "-"
+}
+
+func detectJavaAppName(cmdline string) string {
+	cmdline = strings.TrimSpace(cmdline)
+	if cmdline == "" {
+		return ""
+	}
+	args := strings.Fields(cmdline)
+	if len(args) == 0 {
+		return ""
+	}
+
+	propertyKeys := []string{
+		"-Dspring.application.name=",
+		"--spring.application.name=",
+		"-Dservice.name=",
+		"-Dapp.name=",
+	}
+	for _, arg := range args {
+		for _, prefix := range propertyKeys {
+			if strings.HasPrefix(arg, prefix) {
+				return normalizeJavaServiceName(strings.TrimPrefix(arg, prefix))
+			}
+		}
+	}
+
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] == "-jar" {
+			return normalizeJavaServiceName(filepath.Base(args[i+1]))
+		}
+	}
+
+	for i := 1; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		if arg == "" {
+			continue
+		}
+		if arg == "-cp" || arg == "-classpath" {
+			i++
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		if strings.Contains(arg, ".") {
+			return normalizeJavaServiceName(arg)
+		}
+	}
+	return ""
+}
+
+func normalizeJavaServiceName(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.Trim(value, `"'`)
+	if value == "" {
+		return ""
+	}
+	value = filepath.Base(value)
+	value = strings.TrimSuffix(value, ".jar")
+	if idx := strings.LastIndex(value, "."); idx >= 0 && idx+1 < len(value) {
+		value = value[idx+1:]
+	}
+	return strings.TrimSpace(value)
 }
 
 func sortByCPUDesc(items []ProcessInfo) {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -13,6 +14,7 @@ import (
 
 	"ops-tool/internal/config"
 	"ops-tool/internal/store"
+	"ops-tool/internal/systemlog"
 	"ops-tool/internal/web"
 	webassets "ops-tool/web"
 )
@@ -33,6 +35,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("load config failed: %v", err)
 	}
+	if cfg.System.RuntimeLogs.Enabled {
+		logPath := cfg.System.RuntimeLogs.FilePath
+		if !filepath.IsAbs(logPath) {
+			logPath = filepath.Join(baseDir, logPath)
+		}
+		if err := systemlog.Configure(logPath, cfg.System.RuntimeLogs.MaxEntries); err != nil {
+			log.Fatalf("configure runtime logs failed: %v", err)
+		}
+	}
+	log.SetOutput(io.MultiWriter(os.Stdout, systemlog.Writer()))
+	systemlog.Add("info", "runtime", "ops console bootstrap started")
 
 	sqlitePath := cfg.Core.SQLite.Path
 	if !filepath.IsAbs(sqlitePath) {

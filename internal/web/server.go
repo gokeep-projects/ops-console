@@ -17,11 +17,14 @@ import (
 	"time"
 
 	"ops-tool/internal/backup"
+	"ops-tool/internal/cicd"
 	"ops-tool/internal/config"
 	"ops-tool/internal/logs"
 	"ops-tool/internal/monitor"
 	"ops-tool/internal/script"
 	"ops-tool/internal/store"
+	"ops-tool/internal/systemlog"
+	"ops-tool/internal/traffic"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -38,8 +41,10 @@ type Server struct {
 	tpl    *template.Template
 	router *chi.Mux
 
-	runner *script.Runner
-	backup *backup.Manager
+	runner  *script.Runner
+	backup  *backup.Manager
+	cicd    *cicd.Manager
+	traffic *traffic.Manager
 
 	httpServer *http.Server
 
@@ -61,6 +66,9 @@ type Server struct {
 
 	authMu       sync.RWMutex
 	authSessions map[string]authSession
+
+	cleanupJobMu sync.RWMutex
+	cleanupJobs  map[string]*cleanupScanJob
 }
 
 const (
@@ -110,9 +118,12 @@ func NewServer(baseDir, configPath string, cfg *config.Config, st *store.Store) 
 		tpl:          tpl,
 		runner:       script.NewRunner(st),
 		backup:       backup.NewManager(st),
+		cicd:         cicd.NewManager(st),
+		traffic:      traffic.NewManager(),
 		trendBuffer:  make([]store.MonitorTrendSample, 0, 256),
 		wsClients:    make(map[*monitorWSClient]struct{}),
 		authSessions: make(map[string]authSession),
+		cleanupJobs:  make(map[string]*cleanupScanJob),
 	}
 	s.router = s.routes()
 	return s, nil
@@ -136,6 +147,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.stopMonitorCollector()
 	s.stopTrendFlusher()
 	s.closeMonitorWSClients()
+	s.traffic.Shutdown()
 	flushErr := s.flushTrendBuffer()
 	if s.httpServer == nil {
 		return flushErr
@@ -172,6 +184,13 @@ func (s *Server) routes() *chi.Mux {
 		pr.Get("/api/config", s.handleGetConfig)
 		pr.Put("/api/config", s.handleUpdateConfig)
 
+		pr.Get("/api/system/runtime-logs", s.handleRuntimeLogs)
+		pr.Get("/api/system/menu", s.handleSystemMenu)
+
+		pr.Get("/api/fs/roots", s.handleFSRoots)
+		pr.Get("/api/fs/tree", s.handleFSTree)
+		pr.Post("/api/fs/mkdir", s.handleFSMkdir)
+
 		pr.Get("/api/monitor", s.handleMonitor)
 		pr.Get("/api/monitor/trends", s.handleMonitorTrends)
 		pr.Get("/ws/monitor", s.handleMonitorWS)
@@ -186,9 +205,18 @@ func (s *Server) routes() *chi.Mux {
 
 		pr.Get("/api/docker/status", s.handleDockerStatus)
 		pr.Get("/api/docker/containers", s.handleDockerContainers)
+		pr.Post("/api/docker/containers/batch", s.handleDockerContainersBatchAction)
 		pr.Post("/api/docker/containers/{id}/action", s.handleDockerContainerAction)
 		pr.Get("/api/docker/containers/{id}/logs", s.handleDockerContainerLogs)
 		pr.Get("/api/docker/containers/{id}/inspect", s.handleDockerContainerInspect)
+		pr.Get("/api/docker/images", s.handleDockerImages)
+		pr.Post("/api/docker/images/batch", s.handleDockerImagesBatchAction)
+		pr.Get("/api/docker/images/{id}/inspect", s.handleDockerImageInspect)
+
+		pr.Get("/api/traffic", s.handleTrafficSnapshot)
+		pr.Get("/api/traffic/interfaces", s.handleTrafficInterfaces)
+		pr.Post("/api/traffic/capture/start", s.handleTrafficCaptureStart)
+		pr.Post("/api/traffic/capture/stop", s.handleTrafficCaptureStop)
 
 		pr.Get("/api/scripts", s.handleScripts)
 		pr.Post("/api/scripts/upload", s.handleScriptUpload)
@@ -202,7 +230,19 @@ func (s *Server) routes() *chi.Mux {
 
 		pr.Get("/api/cleanup/meta", s.handleCleanupMeta)
 		pr.Post("/api/cleanup/scan", s.handleCleanupScan)
+		pr.Post("/api/cleanup/scan-jobs", s.handleCleanupScanJobCreate)
+		pr.Get("/api/cleanup/scan-jobs/{jobID}", s.handleCleanupScanJobStatus)
+		pr.Post("/api/cleanup/scan-jobs/{jobID}/cancel", s.handleCleanupScanJobCancel)
 		pr.Post("/api/cleanup/garbage", s.handleCleanupGarbage)
+
+		pr.Get("/api/cicd/pipelines", s.handleCICDPipelines)
+		pr.Post("/api/cicd/pipelines", s.handleCICDPipelineCreate)
+		pr.Put("/api/cicd/pipelines/{id}", s.handleCICDPipelineUpdate)
+		pr.Delete("/api/cicd/pipelines/{id}", s.handleCICDPipelineDelete)
+		pr.Post("/api/cicd/pipelines/{id}/run", s.handleCICDPipelineRun)
+		pr.Get("/api/cicd/runs", s.handleCICDRuns)
+		pr.Get("/api/cicd/runs/{id}", s.handleCICDRunDetail)
+		pr.Post("/api/cicd/runs/{id}/stop", s.handleCICDRunStop)
 	})
 	return r
 }
@@ -211,7 +251,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	data := map[string]any{
-		"Title":  "运维工具",
+		"Title":  maxNonEmpty(s.cfg.System.SiteTitle, "运维工具"),
 		"Config": s.cfg,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -246,15 +286,17 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	defer s.mu.Unlock()
 
 	incoming.Applications = s.cfg.Applications
+	config.EnsureSystemDefaults(&incoming)
+	config.EnsureLogSources(&incoming)
+	config.EnsurePipelineDefaults(&incoming)
 	s.cfg = &incoming
 
-	if err := config.Save(s.configPath, s.cfg); err != nil {
+	if err := s.persistConfigLocked(); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	if err := s.store.SyncConfig(s.cfg); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
+	if s.cfg.System.RuntimeLogs.Enabled {
+		_ = systemlog.Configure(s.resolvePath(s.cfg.System.RuntimeLogs.FilePath), s.cfg.System.RuntimeLogs.MaxEntries)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
@@ -503,7 +545,7 @@ func (s *Server) handleLogApps(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	changed := config.EnsureLogSources(s.cfg)
 	if changed {
-		if err := config.Save(s.configPath, s.cfg); err != nil {
+		if err := s.persistConfigLocked(); err != nil {
 			s.mu.Unlock()
 			writeErr(w, http.StatusInternalServerError, err)
 			return
@@ -593,7 +635,7 @@ func (s *Server) handleLogAppCreate(w http.ResponseWriter, r *http.Request) {
 		LogFiles:    cleanFiles,
 		Description: req.Description,
 	})
-	if err := config.Save(s.configPath, s.cfg); err != nil {
+	if err := s.persistConfigLocked(); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -621,7 +663,7 @@ func (s *Server) handleLogAppDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.cfg.LogAnalysis.Sources = append(s.cfg.LogAnalysis.Sources[:idx], s.cfg.LogAnalysis.Sources[idx+1:]...)
-	if err := config.Save(s.configPath, s.cfg); err != nil {
+	if err := s.persistConfigLocked(); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -791,11 +833,7 @@ func (s *Server) handleScriptUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	s.cfg.Repair.Scripts = append(s.cfg.Repair.Scripts, item)
 
-	if err := config.Save(s.configPath, s.cfg); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	if err := s.store.SyncConfig(s.cfg); err != nil {
+	if err := s.persistConfigLocked(); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -883,9 +921,7 @@ func (s *Server) handleBackupRun(w http.ResponseWriter, r *http.Request) {
 	if req.Target != "" {
 		cfg.Backup.StoragePath = req.Target
 		s.cfg.Backup.StoragePath = req.Target
-		if err := config.Save(s.configPath, s.cfg); err == nil {
-			_ = s.store.SyncConfig(s.cfg)
-		}
+		_ = s.persistConfigLocked()
 	}
 	s.mu.Unlock()
 
@@ -1073,6 +1109,16 @@ func splitCSV(raw string) []string {
 
 func splitArgs(raw string) []string {
 	return strings.Fields(strings.TrimSpace(raw))
+}
+
+func maxNonEmpty(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func minInt(a, b int) int {

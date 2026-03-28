@@ -41,6 +41,17 @@ type ContainerActionOptions struct {
 	RemoveVolumes bool
 }
 
+type Image struct {
+	ID          string `json:"id"`
+	Repository  string `json:"repository"`
+	Tag         string `json:"tag"`
+	Digest      string `json:"digest"`
+	CreatedAt   string `json:"created_at"`
+	Size        string `json:"size"`
+	Containers  string `json:"containers"`
+	DisplayName string `json:"display_name"`
+}
+
 func NewClient(timeout time.Duration) *Client {
 	if timeout <= 0 {
 		timeout = 15 * time.Second
@@ -76,13 +87,16 @@ func (c *Client) Status(ctx context.Context) Status {
 	serverVersion, err := c.runRaw(ctx, "info", "--format", "{{.ServerVersion}}")
 	if err == nil {
 		serverVersion = strings.TrimSpace(serverVersion)
-		if serverVersion != "" && !strings.EqualFold(serverVersion, "<no value>") {
+		if serverVersion != "" && !strings.EqualFold(serverVersion, "<no value>") && !looksLikeDockerDaemonError(serverVersion) {
 			st.DaemonRunning = true
 			st.ServerVersion = serverVersion
 		}
 	}
 	if !st.DaemonRunning {
-		st.Error = "daemon_unavailable"
+		st.Error = strings.TrimSpace(serverVersion)
+		if st.Error == "" || !looksLikeDockerDaemonError(st.Error) {
+			st.Error = "daemon_unavailable"
+		}
 	}
 	return st
 }
@@ -167,6 +181,72 @@ func (c *Client) ContainerInspect(ctx context.Context, id string) (string, error
 	return c.run(ctx, "inspect", id)
 }
 
+func (c *Client) ListImages(ctx context.Context) ([]Image, error) {
+	out, err := c.run(ctx, "images", "--digests", "--no-trunc", "--format", "{{json .}}")
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(strings.ReplaceAll(out, "\r\n", "\n"), "\n")
+	items := make([]Image, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var row map[string]any
+		if err := json.Unmarshal([]byte(line), &row); err != nil {
+			continue
+		}
+		repo := stringify(row["Repository"])
+		tag := stringify(row["Tag"])
+		display := repo
+		if repo == "" {
+			display = stringify(row["ID"])
+		}
+		if tag != "" && tag != "<none>" {
+			display += ":" + tag
+		}
+		items = append(items, Image{
+			ID:          stringify(row["ID"]),
+			Repository:  repo,
+			Tag:         tag,
+			Digest:      stringify(row["Digest"]),
+			CreatedAt:   stringify(row["CreatedAt"]),
+			Size:        stringify(row["Size"]),
+			Containers:  stringify(row["Containers"]),
+			DisplayName: strings.Trim(display, ":"),
+		})
+	}
+	return items, nil
+}
+
+func (c *Client) ImageAction(ctx context.Context, id, action string, force bool) (string, error) {
+	id = strings.TrimSpace(id)
+	action = strings.ToLower(strings.TrimSpace(action))
+	if id == "" {
+		return "", fmt.Errorf("image id is required")
+	}
+	switch action {
+	case "remove", "delete":
+		args := []string{"rmi"}
+		if force {
+			args = append(args, "-f")
+		}
+		args = append(args, id)
+		return c.run(ctx, args...)
+	default:
+		return "", fmt.Errorf("unsupported image action: %s", action)
+	}
+}
+
+func (c *Client) ImageInspect(ctx context.Context, id string) (string, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return "", fmt.Errorf("image id is required")
+	}
+	return c.run(ctx, "image", "inspect", id)
+}
+
 func (c *Client) commandExists() bool {
 	looked, lookErr := exec.LookPath("docker")
 	if lookErr != nil || strings.TrimSpace(looked) == "" {
@@ -241,4 +321,14 @@ func stringify(v any) string {
 	default:
 		return strings.TrimSpace(fmt.Sprintf("%v", x))
 	}
+}
+
+func looksLikeDockerDaemonError(text string) bool {
+	low := strings.ToLower(strings.TrimSpace(text))
+	if low == "" {
+		return false
+	}
+	return strings.Contains(low, "cannot connect to the docker daemon") ||
+		strings.Contains(low, "is the docker daemon running") ||
+		strings.Contains(low, "error during connect")
 }

@@ -13,6 +13,7 @@ import (
 
 type Config struct {
 	Core         CoreConfig        `yaml:"core" json:"core"`
+	System       SystemConfig      `yaml:"system" json:"system"`
 	Monitor      MonitorConfig     `yaml:"monitor" json:"monitor"`
 	Applications []Application     `yaml:"applications" json:"applications"`
 	LogAnalysis  LogAnalysisConfig `yaml:"log_analysis" json:"log_analysis"`
@@ -20,6 +21,7 @@ type Config struct {
 	Backup       BackupConfig      `yaml:"backup" json:"backup"`
 	Databases    []DatabaseTarget  `yaml:"databases" json:"databases"`
 	Middleware   MiddlewareConfig  `yaml:"middleware" json:"middleware"`
+	CICD         CICDConfig        `yaml:"cicd" json:"cicd"`
 	Extensions   map[string]any    `yaml:"extensions" json:"extensions"`
 }
 
@@ -42,6 +44,29 @@ type SQLiteConfig struct {
 type AuthConfig struct {
 	Username string `yaml:"username" json:"username"`
 	Password string `yaml:"password" json:"password"`
+}
+
+type SystemConfig struct {
+	SiteTitle      string            `yaml:"site_title" json:"site_title"`
+	Environment    string            `yaml:"environment" json:"environment"`
+	Owner          string            `yaml:"owner" json:"owner"`
+	DefaultShell   string            `yaml:"default_shell" json:"default_shell"`
+	DefaultWorkDir string            `yaml:"default_work_dir" json:"default_work_dir"`
+	MenuVisibility map[string]bool   `yaml:"menu_visibility" json:"menu_visibility"`
+	RuntimeLogs    RuntimeLogConfig  `yaml:"runtime_logs" json:"runtime_logs"`
+	Performance    PerformanceConfig `yaml:"performance" json:"performance"`
+}
+
+type RuntimeLogConfig struct {
+	Enabled    bool   `yaml:"enabled" json:"enabled"`
+	FilePath   string `yaml:"file_path" json:"file_path"`
+	MaxEntries int    `yaml:"max_entries" json:"max_entries"`
+}
+
+type PerformanceConfig struct {
+	MaxConcurrentTasks      int `yaml:"max_concurrent_tasks" json:"max_concurrent_tasks"`
+	CleanupProgressInterval int `yaml:"cleanup_progress_interval_ms" json:"cleanup_progress_interval_ms"`
+	DockerDefaultPageSize   int `yaml:"docker_default_page_size" json:"docker_default_page_size"`
 }
 
 type MonitorConfig struct {
@@ -161,6 +186,31 @@ type MiddlewareConfig struct {
 	Checks []MiddlewareCheck `yaml:"checks" json:"checks"`
 }
 
+type CICDConfig struct {
+	Enabled   bool             `yaml:"enabled" json:"enabled"`
+	Pipelines []PipelineConfig `yaml:"pipelines" json:"pipelines"`
+}
+
+type PipelineConfig struct {
+	ID             string            `yaml:"id" json:"id"`
+	Name           string            `yaml:"name" json:"name"`
+	Description    string            `yaml:"description" json:"description"`
+	Enabled        bool              `yaml:"enabled" json:"enabled"`
+	Shell          string            `yaml:"shell" json:"shell"`
+	WorkDir        string            `yaml:"work_dir" json:"work_dir"`
+	ArtifactDir    string            `yaml:"artifact_dir" json:"artifact_dir"`
+	Branch         string            `yaml:"branch" json:"branch"`
+	TimeoutMinutes int               `yaml:"timeout_minutes" json:"timeout_minutes"`
+	Env            map[string]string `yaml:"env" json:"env"`
+	Stages         []PipelineStage   `yaml:"stages" json:"stages"`
+}
+
+type PipelineStage struct {
+	Name            string `yaml:"name" json:"name"`
+	Command         string `yaml:"command" json:"command"`
+	ContinueOnError bool   `yaml:"continue_on_error" json:"continue_on_error"`
+}
+
 func LoadOrCreate(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -181,6 +231,9 @@ func LoadOrCreate(path string) (*Config, error) {
 	changed := false
 	if cfg.Monitor.RefreshSeconds <= 0 {
 		cfg.Monitor.RefreshSeconds = 5
+		changed = true
+	}
+	if EnsureSystemDefaults(cfg) {
 		changed = true
 	}
 	if cfg.Monitor.SNMP.TimeoutSeconds <= 0 {
@@ -211,6 +264,9 @@ func LoadOrCreate(path string) (*Config, error) {
 		changed = true
 	}
 	if EnsureLogSources(cfg) {
+		changed = true
+	}
+	if EnsurePipelineDefaults(cfg) {
 		changed = true
 	}
 	if cfg.Core.Web.Listen == "" {
@@ -260,6 +316,7 @@ func DefaultConfig() *Config {
 			},
 			Timezone: "Asia/Shanghai",
 		},
+		System: DefaultSystemConfig(),
 		Monitor: MonitorConfig{
 			RefreshSeconds: 5,
 			DefaultAll:     true,
@@ -336,6 +393,7 @@ func DefaultConfig() *Config {
 				{Name: "keepalived", Type: "port", Host: "127.0.0.1", Port: 112, ProcessNames: []string{"keepalived"}},
 			},
 		},
+		CICD: DefaultCICDConfig(),
 		Extensions: map[string]any{
 			"system_monitor": map[string]any{
 				"show_top_process_count": 10,
@@ -352,7 +410,231 @@ func DefaultConfig() *Config {
 		},
 	}
 	EnsureLogSources(cfg)
+	EnsureSystemDefaults(cfg)
+	EnsurePipelineDefaults(cfg)
 	return cfg
+}
+
+func DefaultSystemConfig() SystemConfig {
+	return SystemConfig{
+		SiteTitle:      "OPS 运维控制台",
+		Environment:    "production",
+		Owner:          "platform-team",
+		DefaultShell:   defaultShellByOS(),
+		DefaultWorkDir: ".",
+		MenuVisibility: defaultMenuVisibility(),
+		RuntimeLogs: RuntimeLogConfig{
+			Enabled:    true,
+			FilePath:   "logs/ops-console/runtime.log",
+			MaxEntries: 3000,
+		},
+		Performance: PerformanceConfig{
+			MaxConcurrentTasks:      4,
+			CleanupProgressInterval: 300,
+			DockerDefaultPageSize:   20,
+		},
+	}
+}
+
+func DefaultCICDConfig() CICDConfig {
+	shell := defaultShellByOS()
+	return CICDConfig{
+		Enabled: true,
+		Pipelines: []PipelineConfig{
+			{
+				ID:             "default-deploy",
+				Name:           "默认部署流水线",
+				Description:    "拉取代码、执行构建并部署到当前主机",
+				Enabled:        true,
+				Shell:          shell,
+				WorkDir:        ".",
+				ArtifactDir:    "dist",
+				Branch:         "master",
+				TimeoutMinutes: 30,
+				Env: map[string]string{
+					"APP_ENV": "production",
+				},
+				Stages: []PipelineStage{
+					{Name: "代码拉取", Command: defaultPipelineCommand(shell, "git pull --rebase")},
+					{Name: "构建", Command: defaultPipelineCommand(shell, "go build ./...")},
+					{Name: "部署", Command: defaultPipelineCommand(shell, "echo \"replace deploy command\"")},
+				},
+			},
+		},
+	}
+}
+
+func EnsureSystemDefaults(cfg *Config) bool {
+	if cfg == nil {
+		return false
+	}
+	changed := false
+	def := DefaultSystemConfig()
+	if strings.TrimSpace(cfg.System.SiteTitle) == "" {
+		cfg.System.SiteTitle = def.SiteTitle
+		changed = true
+	}
+	if strings.TrimSpace(cfg.System.Environment) == "" {
+		cfg.System.Environment = def.Environment
+		changed = true
+	}
+	if strings.TrimSpace(cfg.System.Owner) == "" {
+		cfg.System.Owner = def.Owner
+		changed = true
+	}
+	if strings.TrimSpace(cfg.System.DefaultShell) == "" {
+		cfg.System.DefaultShell = def.DefaultShell
+		changed = true
+	}
+	if strings.TrimSpace(cfg.System.DefaultWorkDir) == "" {
+		cfg.System.DefaultWorkDir = def.DefaultWorkDir
+		changed = true
+	}
+	if cfg.System.MenuVisibility == nil {
+		cfg.System.MenuVisibility = defaultMenuVisibility()
+		changed = true
+	} else {
+		for key, value := range defaultMenuVisibility() {
+			if _, ok := cfg.System.MenuVisibility[key]; !ok {
+				cfg.System.MenuVisibility[key] = value
+				changed = true
+			}
+		}
+		if cfg.System.MenuVisibility["system"] != true {
+			cfg.System.MenuVisibility["system"] = true
+			changed = true
+		}
+	}
+	if strings.TrimSpace(cfg.System.RuntimeLogs.FilePath) == "" {
+		cfg.System.RuntimeLogs.FilePath = def.RuntimeLogs.FilePath
+		changed = true
+	}
+	if cfg.System.RuntimeLogs.MaxEntries <= 0 {
+		cfg.System.RuntimeLogs.MaxEntries = def.RuntimeLogs.MaxEntries
+		changed = true
+	}
+	if cfg.System.Performance.MaxConcurrentTasks <= 0 {
+		cfg.System.Performance.MaxConcurrentTasks = def.Performance.MaxConcurrentTasks
+		changed = true
+	}
+	if cfg.System.Performance.CleanupProgressInterval <= 0 {
+		cfg.System.Performance.CleanupProgressInterval = def.Performance.CleanupProgressInterval
+		changed = true
+	}
+	if cfg.System.Performance.DockerDefaultPageSize <= 0 {
+		cfg.System.Performance.DockerDefaultPageSize = def.Performance.DockerDefaultPageSize
+		changed = true
+	}
+	return changed
+}
+
+func EnsurePipelineDefaults(cfg *Config) bool {
+	if cfg == nil {
+		return false
+	}
+	changed := false
+	if !cfg.CICD.Enabled && len(cfg.CICD.Pipelines) == 0 {
+		cfg.CICD = DefaultCICDConfig()
+		return true
+	}
+	if len(cfg.CICD.Pipelines) == 0 {
+		cfg.CICD.Pipelines = []PipelineConfig{}
+	}
+	for i := range cfg.CICD.Pipelines {
+		p := &cfg.CICD.Pipelines[i]
+		if strings.TrimSpace(p.ID) == "" {
+			p.ID = pipelineSlug(p.Name, i+1)
+			changed = true
+		}
+		if strings.TrimSpace(p.Name) == "" {
+			p.Name = fmt.Sprintf("流水线-%d", i+1)
+			changed = true
+		}
+		if strings.TrimSpace(p.Shell) == "" {
+			p.Shell = defaultShellByOS()
+			changed = true
+		}
+		if strings.TrimSpace(p.WorkDir) == "" {
+			p.WorkDir = "."
+			changed = true
+		}
+		if p.TimeoutMinutes <= 0 {
+			p.TimeoutMinutes = 30
+			changed = true
+		}
+		if p.Env == nil {
+			p.Env = map[string]string{}
+		}
+		if len(p.Stages) == 0 {
+			p.Stages = []PipelineStage{
+				{Name: "执行", Command: defaultPipelineCommand(p.Shell, "echo \"pipeline stage command\"")},
+			}
+			changed = true
+		}
+		for j := range p.Stages {
+			stage := &p.Stages[j]
+			if strings.TrimSpace(stage.Name) == "" {
+				stage.Name = fmt.Sprintf("阶段-%d", j+1)
+				changed = true
+			}
+		}
+	}
+	return changed
+}
+
+func defaultMenuVisibility() map[string]bool {
+	return map[string]bool{
+		"monitor":         true,
+		"logs":            true,
+		"traffic":         true,
+		"traffic-capture": true,
+		"repair":          true,
+		"backup":          true,
+		"cleanup":         true,
+		"docker":          true,
+		"cicd":            true,
+		"system":          true,
+	}
+}
+
+func defaultShellByOS() string {
+	switch runtime.GOOS {
+	case "windows":
+		return "powershell"
+	default:
+		return "sh"
+	}
+}
+
+func defaultPipelineCommand(shell, command string) string {
+	if strings.TrimSpace(command) == "" {
+		return ""
+	}
+	return command
+}
+
+func pipelineSlug(name string, index int) string {
+	key := strings.TrimSpace(strings.ToLower(name))
+	if key == "" {
+		return fmt.Sprintf("pipeline-%d", index)
+	}
+	var b strings.Builder
+	for _, r := range key {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	out = strings.ReplaceAll(out, "--", "-")
+	if out == "" {
+		return fmt.Sprintf("pipeline-%d", index)
+	}
+	return out
 }
 
 func EnsureLogSources(cfg *Config) bool {
@@ -536,4 +818,17 @@ func (c *Config) FindApp(name string) (Application, bool) {
 		}
 	}
 	return Application{}, false
+}
+
+func (c *Config) FindPipeline(id string) (PipelineConfig, int, bool) {
+	key := strings.TrimSpace(id)
+	if key == "" {
+		return PipelineConfig{}, -1, false
+	}
+	for i, item := range c.CICD.Pipelines {
+		if strings.TrimSpace(item.ID) == key {
+			return item, i, true
+		}
+	}
+	return PipelineConfig{}, -1, false
 }

@@ -86,6 +86,27 @@
         </span>
         <span class="menu-label">日志分析</span>
       </button>
+      <button class="menu" type="button" data-section="traffic" title="进程流量" aria-label="进程流量">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none">
+            <path d="M2.5 12.5h2.2l1.4-3.1 2.1 1.9 2.4-5.3 1.4 2h1.5" />
+            <path d="M2.5 4.5h3" />
+            <path d="M10.5 4.5h3" />
+          </svg>
+        </span>
+        <span class="menu-label">进程流量</span>
+      </button>
+      <button class="menu" type="button" data-section="traffic-capture" title="数据包抓包" aria-label="数据包抓包">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none">
+            <rect x="2.5" y="3" width="11" height="8.5" rx="1.5" />
+            <path d="M5 6h6" />
+            <path d="M5 8.5h4.5" />
+            <path d="M6.5 13h3" />
+          </svg>
+        </span>
+        <span class="menu-label">数据包抓包</span>
+      </button>
       <button class="menu" type="button" data-section="repair" title="修复工具" aria-label="修复工具">
         <span class="menu-icon" aria-hidden="true">
           <svg viewBox="0 0 16 16" fill="none">
@@ -130,6 +151,34 @@
           </svg>
         </span>
         <span class="menu-label">Docker管理</span>
+      </button>
+      <button class="menu" type="button" data-section="cicd" title="CI/CD" aria-label="CI/CD">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none">
+            <path d="M2.5 4.5h11" />
+            <path d="M4.5 8h7" />
+            <path d="M6.5 11.5h3" />
+            <path d="m11.2 4.5 2.3 2.3-2.3 2.3" />
+            <path d="m4.8 11.5-2.3-2.3 2.3-2.3" />
+          </svg>
+        </span>
+        <span class="menu-label">CI/CD</span>
+      </button>
+      <button class="menu" type="button" data-section="system" title="系统管理" aria-label="系统管理">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none">
+            <circle cx="8" cy="8" r="2.2" />
+            <path d="M8 1.8v2" />
+            <path d="M8 12.2v2" />
+            <path d="m13 3 1.4 1.4" />
+            <path d="m1.6 11.6 1.4 1.4" />
+            <path d="M14.2 8h-2" />
+            <path d="M3.8 8h-2" />
+            <path d="m13 13-1.4-1.4" />
+            <path d="M3 3 4.4 4.4" />
+          </svg>
+        </span>
+        <span class="menu-label">系统管理</span>
       </button>
     </aside>
 
@@ -258,13 +307,14 @@
 
         <div class="grid cards-2">
           <article class="card">
-            <div class="card-head">
-              <h3>磁盘状态</h3>
-              <div class="ops">
+          <div class="card-head">
+            <h3>磁盘状态</h3>
+            <div class="ops">
                 <small id="diskIoSummary">-</small>
                 <button id="openDiskMetaModalBtn" class="btn sm" type="button">硬件汇总</button>
               </div>
             </div>
+            <div id="diskVolumeChart" class="disk-volume-chart"></div>
             <div id="diskList" class="table"></div>
           </article>
 
@@ -328,7 +378,103 @@
           </div>
           <p id="logCurrentApp" class="hint">当前应用：</p>
           <div id="logFileSelector" class="selector"></div>
+          <div id="logStats" class="log-stats-grid"></div>
           <div id="logResult" class="log-view"></div>
+        </div>
+      </section>
+
+      <section id="traffic" class="panel traffic-panel">
+        <article class="card traffic-hero-card">
+          <div class="card-head">
+            <h3>进程 / 连接流量</h3>
+            <div class="ops">
+              <button id="trafficRefreshBtn" class="btn sm" type="button">刷新</button>
+            </div>
+          </div>
+          <p data-traffic-status-summary class="hint">正在加载流量分析状态...</p>
+          <div class="traffic-kpi-grid">
+            <div class="traffic-kpi-card">
+              <span>连接数</span>
+              <strong data-traffic-kpi="connections">0</strong>
+            </div>
+            <div class="traffic-kpi-card">
+              <span>已捕获数据包</span>
+              <strong data-traffic-kpi="packets">0</strong>
+            </div>
+            <div class="traffic-kpi-card">
+              <span>HTTP 明文</span>
+              <strong data-traffic-kpi="http">0</strong>
+            </div>
+            <div class="traffic-kpi-card">
+              <span>抓包接口</span>
+              <strong data-traffic-kpi="interface">-</strong>
+            </div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="card-head">
+            <h3>进程 / 连接流量排行</h3>
+            <div class="ops">
+              <input id="trafficConnectionSearch" class="input sm" placeholder="搜索进程 / PID / 端口 / IP" />
+            </div>
+          </div>
+          <div id="trafficConnectionTable" class="table"></div>
+        </article>
+      </section>
+
+      <section id="traffic-capture" class="panel traffic-panel">
+        <article class="card traffic-hero-card">
+          <div class="card-head">
+            <h3>数据包抓包 / HTTP 明文</h3>
+            <div class="ops">
+              <select id="trafficInterface" class="input sm"></select>
+              <button id="trafficStartBtn" class="btn sm" type="button">开始抓包</button>
+              <button id="trafficStopBtn" class="btn sm danger" type="button">停止抓包</button>
+              <button id="trafficCaptureRefreshBtn" class="btn sm" type="button">刷新</button>
+            </div>
+          </div>
+          <p data-traffic-status-summary class="hint">正在加载抓包状态...</p>
+          <div class="traffic-kpi-grid">
+            <div class="traffic-kpi-card">
+              <span>连接数</span>
+              <strong data-traffic-kpi="connections">0</strong>
+            </div>
+            <div class="traffic-kpi-card">
+              <span>已捕获数据包</span>
+              <strong data-traffic-kpi="packets">0</strong>
+            </div>
+            <div class="traffic-kpi-card">
+              <span>HTTP 明文</span>
+              <strong data-traffic-kpi="http">0</strong>
+            </div>
+            <div class="traffic-kpi-card">
+              <span>抓包接口</span>
+              <strong data-traffic-kpi="interface">-</strong>
+            </div>
+          </div>
+          <p class="hint">网卡列表会优先展示真实物理网卡，回环网卡和虚拟网卡会自动排到后面。</p>
+        </article>
+
+        <div class="grid cards-2">
+          <article class="card">
+            <div class="card-head">
+              <h3>数据包列表</h3>
+              <div class="ops">
+                <input id="trafficPacketSearch" class="input sm" placeholder="搜索协议 / 进程 / 端口 / 内容" />
+              </div>
+            </div>
+            <div id="trafficPacketTable" class="table"></div>
+          </article>
+          <article class="card">
+            <div class="card-head">
+              <h3>HTTP 明文解码</h3>
+              <div class="ops">
+                <span class="hint">仅支持 HTTP 明文，HTTPS 点击时会提示暂不支持</span>
+              </div>
+            </div>
+            <div id="trafficHTTPTable" class="table"></div>
+          </article>
         </div>
       </section>
 
@@ -413,9 +559,18 @@
               <option value="es">ES 备份</option>
             </select>
             <input id="backupName" class="input" placeholder="备份名称（可选）" />
-            <input id="backupTarget" class="input" placeholder="备份目录（可选，支持修改存储路径）" />
             <button id="runBackupBtn" class="btn">开始备份</button>
           </div>
+          <div class="row">
+            <input id="backupTarget" class="input" placeholder="备份目录（可选，支持修改存储路径）" />
+            <button id="backupSelectTargetBtn" class="btn sm" type="button">选择备份目标</button>
+            <button id="backupCreateTargetBtn" class="btn sm" type="button">新建目录</button>
+          </div>
+          <div class="row">
+            <div id="backupSourceSummary" class="backup-source-summary">未选择备份源，默认使用配置文件中的源目录</div>
+            <button id="backupSelectSourceBtn" class="btn sm" type="button">选择备份源目录</button>
+          </div>
+          <div id="backupSourceList" class="selector backup-source-list"></div>
           <p class="hint">数据库和 ES 备份命令来源于配置文件 `backup.databases / backup.es`。</p>
         </article>
         <article class="card">
@@ -433,6 +588,7 @@
             </div>
             <div class="cleanup-toolbar-ops">
               <button id="cleanupLoadRootsBtn" class="btn sm" type="button">刷新分区</button>
+              <button id="cleanupOpenTreeBtn" class="btn sm" type="button">从目录树选择</button>
               <button id="cleanupScanBtn" class="btn sm" type="button">开始扫描</button>
               <button id="cleanupStopScanBtn" class="btn sm danger" type="button" disabled>停止扫描</button>
             </div>
@@ -449,6 +605,12 @@
             <input id="cleanupSearch" class="input" placeholder="模糊搜索：文件名 / 路径 / 文件类型" />
             <input id="cleanupLargeThresholdGB" class="input sm" value="1" />
             <button id="cleanupApplyFilterBtn" class="btn sm" type="button">应用筛选</button>
+          </div>
+          <div class="scan-progress-card">
+            <div class="scan-progress-track">
+              <span id="cleanupScanProgressBar" class="scan-progress-bar"></span>
+            </div>
+            <div id="cleanupScanProgressText" class="scan-progress-text">等待开始</div>
           </div>
           <div class="cleanup-kpi-grid">
             <div class="cleanup-kpi-card">
@@ -490,12 +652,14 @@
               <div class="card-head">
                 <h3>目录占用排行</h3>
               </div>
+              <div id="cleanupDirChart" class="cleanup-mini-chart"></div>
               <div id="cleanupDirSummaryList" class="table"></div>
             </article>
             <article class="card">
               <div class="card-head">
                 <h3>文件类型分布</h3>
               </div>
+              <div id="cleanupTypeChart" class="cleanup-mini-chart"></div>
               <div id="cleanupTypeSummaryList" class="table"></div>
             </article>
           </div>
@@ -548,7 +712,7 @@
 
         <article class="card docker-table-card">
           <div class="card-head">
-            <h3>容器列表</h3>
+            <h3>Docker 资产管理</h3>
             <div class="ops">
               <input id="dockerSearch" class="input" placeholder="搜索容器名 / 镜像 / ID / 状态" />
               <select id="dockerScope" class="input sm">
@@ -557,6 +721,17 @@
               </select>
               <button id="dockerRefreshBtn" class="btn sm" type="button">刷新容器</button>
             </div>
+          </div>
+          <div class="docker-tabs">
+            <button id="dockerTabContainers" class="btn sm active" type="button">容器</button>
+            <button id="dockerTabImages" class="btn sm" type="button">镜像</button>
+          </div>
+          <div id="dockerBatchActions" class="docker-batch-actions">
+            <button id="dockerBatchStartBtn" class="btn sm" type="button">批量启动</button>
+            <button id="dockerBatchStopBtn" class="btn sm danger" type="button">批量停止</button>
+            <button id="dockerBatchRestartBtn" class="btn sm" type="button">批量重启</button>
+            <button id="dockerBatchRemoveBtn" class="btn sm danger" type="button">批量删除容器</button>
+            <button id="dockerBatchRemoveImagesBtn" class="btn sm danger" type="button">批量删除镜像</button>
           </div>
           <div class="docker-pagination">
             <div class="docker-pagination-left">
@@ -576,7 +751,123 @@
             </div>
           </div>
           <div id="dockerContainerTable" class="table"></div>
+          <div id="dockerImageTable" class="table hidden"></div>
         </article>
+      </section>
+
+      <section id="cicd" class="panel cicd-panel">
+        <article class="card cicd-hero-card">
+          <div class="card-head">
+            <h3>CI/CD 流水线部署</h3>
+            <div class="ops">
+              <button id="cicdAddPipelineBtn" class="btn sm" type="button">新建流水线</button>
+              <button id="cicdRefreshBtn" class="btn sm" type="button">刷新状态</button>
+            </div>
+          </div>
+          <div id="cicdPipelineCards" class="cicd-pipeline-grid"></div>
+        </article>
+        <div class="grid cards-2">
+          <article class="card">
+            <div class="card-head">
+              <h3>流水线运行记录</h3>
+            </div>
+            <div id="cicdRunTable" class="table"></div>
+          </article>
+          <article class="card">
+            <div class="card-head">
+              <h3>运行日志</h3>
+              <div class="ops">
+                <button id="cicdStopRunBtn" class="btn sm danger" type="button">停止当前运行</button>
+              </div>
+            </div>
+            <pre id="cicdRunOutput" class="log-view compact">请选择流水线运行记录</pre>
+          </article>
+        </div>
+      </section>
+
+      <section id="system" class="panel system-panel">
+        <div class="grid cards-2">
+          <article class="card">
+            <div class="card-head">
+              <h3>系统管理 / 全局配置</h3>
+              <div class="ops">
+                <button id="systemSaveBtn" class="btn sm" type="button">保存配置</button>
+              </div>
+            </div>
+            <div class="system-form-grid">
+              <label class="field">
+                <span>系统标题</span>
+                <input id="systemSiteTitle" class="input" placeholder="OPS 运维控制台" />
+              </label>
+              <label class="field">
+                <span>环境</span>
+                <input id="systemEnvironment" class="input" placeholder="production / staging" />
+              </label>
+              <label class="field">
+                <span>负责人</span>
+                <input id="systemOwner" class="input" placeholder="platform-team" />
+              </label>
+              <label class="field">
+                <span>监听地址</span>
+                <input id="systemListen" class="input" placeholder="0.0.0.0:18082" />
+              </label>
+              <label class="field">
+                <span>默认Shell</span>
+                <input id="systemDefaultShell" class="input" placeholder="sh / powershell / bash" />
+              </label>
+              <label class="field">
+                <span>默认工作目录</span>
+                <input id="systemDefaultWorkDir" class="input" placeholder="." />
+              </label>
+              <label class="field">
+                <span>监控刷新秒数</span>
+                <input id="systemRefreshSeconds" class="input" placeholder="5" />
+              </label>
+              <label class="field">
+                <span>运行日志路径</span>
+                <input id="systemRuntimeLogPath" class="input" placeholder="logs/ops-console/runtime.log" />
+              </label>
+              <label class="field">
+                <span>运行日志缓存条数</span>
+                <input id="systemRuntimeLogMaxEntries" class="input" placeholder="3000" />
+              </label>
+              <label class="field">
+                <span>并发任务数</span>
+                <input id="systemMaxConcurrentTasks" class="input" placeholder="4" />
+              </label>
+              <label class="field">
+                <span>清理进度刷新(ms)</span>
+                <input id="systemCleanupProgressInterval" class="input" placeholder="300" />
+              </label>
+              <label class="field">
+                <span>Docker 默认分页</span>
+                <input id="systemDockerPageSize" class="input" placeholder="20" />
+              </label>
+            </div>
+            <div class="system-menu-visibility">
+              <h4>菜单显示控制</h4>
+              <div id="systemMenuVisibility" class="selector"></div>
+            </div>
+          </article>
+          <article class="card">
+            <div class="card-head">
+              <h3>系统运行日志</h3>
+              <div class="ops">
+                <input id="runtimeLogKeyword" class="input sm" placeholder="关键字筛选" />
+                <select id="runtimeLogLevel" class="input sm">
+                  <option value="all">全部级别</option>
+                  <option value="info">INFO</option>
+                  <option value="warn">WARN</option>
+                  <option value="error">ERROR</option>
+                  <option value="debug">DEBUG</option>
+                </select>
+                <button id="runtimeLogRefreshBtn" class="btn sm" type="button">刷新</button>
+              </div>
+            </div>
+            <div id="runtimeLogMeta" class="hint">-</div>
+            <div id="runtimeLogList" class="runtime-log-list"></div>
+          </article>
+        </div>
       </section>
     </main>
   </div>

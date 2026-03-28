@@ -53,7 +53,7 @@ func GetProcessDetail(pid int32) (*ProcessDetail, error) {
 
 	detail := &ProcessDetail{
 		PID:           pid,
-		Name:          name,
+		Name:          displayProcessName(name, cmdline, exe),
 		ExePath:       exe,
 		Cmdline:       cmdline,
 		Status:        status,

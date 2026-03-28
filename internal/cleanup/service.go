@@ -71,6 +71,24 @@ type ScanOptions struct {
 	LargeFileThreshold uint64
 	LargeLimit         int
 	SummaryLimit       int
+	ProgressInterval   time.Duration
+	OnProgress         func(ScanProgress)
+}
+
+type ScanProgress struct {
+	Roots             []string  `json:"roots"`
+	CurrentRoot       string    `json:"current_root"`
+	CurrentPath       string    `json:"current_path"`
+	ScannedFiles      int       `json:"scanned_files"`
+	ScannedDirs       int       `json:"scanned_dirs"`
+	MatchedFiles      int       `json:"matched_files"`
+	TotalBytes        uint64    `json:"total_bytes"`
+	MatchedTotalBytes uint64    `json:"matched_total_bytes"`
+	LargeFiles        int       `json:"large_files"`
+	StartedAt         time.Time `json:"started_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+	Finished          bool      `json:"finished"`
+	Cancelled         bool      `json:"cancelled"`
 }
 
 type ScanResult struct {
@@ -316,6 +334,37 @@ func ScanFiles(opts ScanOptions) ScanResult {
 		DirectorySummary: []DirectorySummary{},
 		TypeSummary:      []TypeSummary{},
 	}
+	progressInterval := opts.ProgressInterval
+	if progressInterval <= 0 {
+		progressInterval = 300 * time.Millisecond
+	}
+	lastProgressAt := time.Time{}
+	emitProgress := func(currentRoot, currentPath string, finished bool) {
+		if opts.OnProgress == nil {
+			return
+		}
+		now := time.Now()
+		if !finished && !lastProgressAt.IsZero() && now.Sub(lastProgressAt) < progressInterval {
+			return
+		}
+		lastProgressAt = now
+		opts.OnProgress(ScanProgress{
+			Roots:             append([]string(nil), roots...),
+			CurrentRoot:       currentRoot,
+			CurrentPath:       currentPath,
+			ScannedFiles:      res.ScannedFiles,
+			ScannedDirs:       res.ScannedDirs,
+			MatchedFiles:      res.MatchedFiles,
+			TotalBytes:        res.TotalBytes,
+			MatchedTotalBytes: res.MatchedTotalBytes,
+			LargeFiles:        largeHeap.Len(),
+			StartedAt:         start,
+			UpdatedAt:         now,
+			Finished:          finished,
+			Cancelled:         res.Cancelled,
+		})
+	}
+	emitProgress("", "", false)
 
 	dirStats := map[string]*summaryStat{}
 	typeStats := map[string]*summaryStat{}
@@ -343,6 +392,7 @@ func ScanFiles(opts ScanOptions) ScanResult {
 	}
 
 	for _, root := range roots {
+		currentRoot := root
 		if errors.Is(ctx.Err(), context.Canceled) {
 			res.Cancelled = true
 			break
@@ -372,6 +422,7 @@ func ScanFiles(opts ScanOptions) ScanResult {
 			}
 			if d.IsDir() {
 				res.ScannedDirs++
+				emitProgress(currentRoot, path, false)
 				return nil
 			}
 			info, statErr := d.Info()
@@ -427,6 +478,7 @@ func ScanFiles(opts ScanOptions) ScanResult {
 			}
 			typeStats[typeKey].fileCount++
 			typeStats[typeKey].totalSize += entry.Size
+			emitProgress(currentRoot, path, false)
 
 			return nil
 		})
@@ -464,6 +516,7 @@ func ScanFiles(opts ScanOptions) ScanResult {
 		res.Errors = appendLimit(res.Errors, "scan cancelled", 18)
 	}
 	res.DurationMS = time.Since(start).Milliseconds()
+	emitProgress("", "", true)
 	return res
 }
 
