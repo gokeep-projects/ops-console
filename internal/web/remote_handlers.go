@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"hash/crc32"
@@ -9,6 +10,8 @@ import (
 	"image/jpeg"
 	"math"
 	"net/http"
+	"os"
+	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
@@ -65,7 +68,7 @@ type remoteDesktopWSRequest struct {
 }
 
 func (s *Server) handleRemoteMeta(w http.ResponseWriter, r *http.Request) {
-	b, err := primaryDisplayBounds()
+	wid, hei, err := detectDesktopSize()
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"available": false,
@@ -79,8 +82,8 @@ func (s *Server) handleRemoteMeta(w http.ResponseWriter, r *http.Request) {
 		"available":       true,
 		"platform":        runtime.GOOS,
 		"can_input":       remoteInputSupported(),
-		"width":           b.Dx(),
-		"height":          b.Dy(),
+		"width":           wid,
+		"height":          hei,
 		"default_fps":     10,
 		"default_quality": 65,
 		"default_scale":   0.75,
@@ -232,7 +235,7 @@ func (s *Server) handleRemoteDesktopInput(w http.ResponseWriter, r *http.Request
 
 func (s *Server) applyRemoteDesktopInput(req remoteDesktopInputRequest) error {
 	if !remoteInputSupported() {
-		return fmt.Errorf("当前系统暂不支持网页输入控制")
+		return fmt.Errorf("desktop input control is not supported on current system")
 	}
 
 	b, err := primaryDisplayBounds()
@@ -268,15 +271,38 @@ func (s *Server) applyRemoteDesktopInput(req remoteDesktopInputRequest) error {
 }
 
 func captureDesktopJPEG(scale float64, quality int) ([]byte, int, int, error) {
-	b, err := primaryDisplayBounds()
+	bounds, err := primaryDisplayBounds()
+	if err == nil {
+		frame, w, h, capErr := captureDesktopJPEGFromBounds(bounds, scale, quality)
+		if capErr == nil {
+			return frame, w, h, nil
+		}
+		if runtime.GOOS != "darwin" {
+			return nil, 0, 0, capErr
+		}
+		fallbackFrame, fw, fh, fallbackErr := captureDesktopJPEGByScreencapture(scale, quality)
+		if fallbackErr == nil {
+			return fallbackFrame, fw, fh, nil
+		}
+		return nil, 0, 0, fmt.Errorf("capture desktop failed: %v; fallback failed: %v", capErr, fallbackErr)
+	}
+
+	if runtime.GOOS == "darwin" {
+		frame, w, h, fallbackErr := captureDesktopJPEGByScreencapture(scale, quality)
+		if fallbackErr == nil {
+			return frame, w, h, nil
+		}
+		return nil, 0, 0, fmt.Errorf("%v; fallback failed: %v", err, fallbackErr)
+	}
+	return nil, 0, 0, err
+}
+
+func captureDesktopJPEGFromBounds(bounds image.Rectangle, scale float64, quality int) ([]byte, int, int, error) {
+	img, err := screenshot.CaptureRect(bounds)
 	if err != nil {
 		return nil, 0, 0, err
 	}
-	img, err := screenshot.CaptureRect(b)
-	if err != nil {
-		return nil, 0, 0, err
-	}
-	w, h := b.Dx(), b.Dy()
+	w, h := bounds.Dx(), bounds.Dy()
 	if scale > 0 && scale < 0.999 {
 		tw := int(math.Max(2, math.Round(float64(w)*scale)))
 		th := int(math.Max(2, math.Round(float64(h)*scale)))
@@ -292,12 +318,87 @@ func captureDesktopJPEG(scale float64, quality int) ([]byte, int, int, error) {
 	return buf.Bytes(), w, h, nil
 }
 
+func captureDesktopJPEGByScreencapture(scale float64, quality int) ([]byte, int, int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	tmpFile, err := os.CreateTemp("", "ops-remote-*.jpg")
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	tmpPath := tmpFile.Name()
+	_ = tmpFile.Close()
+	defer os.Remove(tmpPath)
+
+	cmd := exec.CommandContext(ctx, "screencapture", "-x", "-t", "jpg", tmpPath)
+	if output, cmdErr := cmd.CombinedOutput(); cmdErr != nil {
+		msg := strings.TrimSpace(string(output))
+		if msg == "" {
+			return nil, 0, 0, cmdErr
+		}
+		return nil, 0, 0, fmt.Errorf("%v: %s", cmdErr, msg)
+	}
+
+	raw, err := os.ReadFile(tmpPath)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	cfg, err := jpeg.DecodeConfig(bytes.NewReader(raw))
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	w, h := cfg.Width, cfg.Height
+	if w <= 0 || h <= 0 {
+		return nil, 0, 0, fmt.Errorf("invalid frame size from screencapture")
+	}
+	if scale <= 0 || scale >= 0.999 {
+		return raw, w, h, nil
+	}
+
+	img, err := jpeg.Decode(bytes.NewReader(raw))
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	tw := int(math.Max(2, math.Round(float64(w)*scale)))
+	th := int(math.Max(2, math.Round(float64(h)*scale)))
+	dst := image.NewRGBA(image.Rect(0, 0, tw, th))
+	draw.CatmullRom.Scale(dst, dst.Bounds(), img, img.Bounds(), draw.Over, nil)
+
+	buf := bytes.NewBuffer(make([]byte, 0, tw*th/4))
+	if err := jpeg.Encode(buf, dst, &jpeg.Options{Quality: clampInt(quality, 35, 90)}); err != nil {
+		return nil, 0, 0, err
+	}
+	return buf.Bytes(), tw, th, nil
+}
+
+func detectDesktopSize() (int, int, error) {
+	bounds, err := primaryDisplayBounds()
+	if err == nil {
+		return bounds.Dx(), bounds.Dy(), nil
+	}
+	if runtime.GOOS == "darwin" {
+		_, w, h, fallbackErr := captureDesktopJPEGByScreencapture(1, 60)
+		if fallbackErr == nil {
+			return w, h, nil
+		}
+		return 0, 0, fmt.Errorf("%v; fallback failed: %v", err, fallbackErr)
+	}
+	return 0, 0, err
+}
+
 func primaryDisplayBounds() (image.Rectangle, error) {
 	count := screenshot.NumActiveDisplays()
 	if count <= 0 {
-		return image.Rectangle{}, fmt.Errorf("未检测到可用显示器")
+		return image.Rectangle{}, displayUnavailableError()
 	}
 	return screenshot.GetDisplayBounds(0), nil
+}
+
+func displayUnavailableError() error {
+	if runtime.GOOS == "darwin" {
+		return fmt.Errorf("no active display detected on macOS; ensure GUI session is logged in and Screen Recording permission is granted for ops-tool, and attach a physical or virtual display if running headless")
+	}
+	return fmt.Errorf("no active display detected")
 }
 
 func denormalizePoint(nx, ny float64, bounds image.Rectangle) (int, int) {
