@@ -22,12 +22,13 @@ func (s *Server) handleTrafficSnapshot(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTrafficCaptureStart(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Interface string `json:"interface"`
+		Filter    string `json:"filter"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := s.traffic.StartCapture(req.Interface); err != nil {
+	if err := s.traffic.StartCapture(req.Interface, req.Filter); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}

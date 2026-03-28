@@ -212,6 +212,9 @@ func (s *Server) routes() *chi.Mux {
 		pr.Get("/api/docker/images", s.handleDockerImages)
 		pr.Post("/api/docker/images/batch", s.handleDockerImagesBatchAction)
 		pr.Get("/api/docker/images/{id}/inspect", s.handleDockerImageInspect)
+		pr.Get("/api/remote/meta", s.handleRemoteMeta)
+		pr.Post("/api/remote/input", s.handleRemoteDesktopInput)
+		pr.Get("/ws/remote/desktop", s.handleRemoteDesktopWS)
 
 		pr.Get("/api/traffic", s.handleTrafficSnapshot)
 		pr.Get("/api/traffic/interfaces", s.handleTrafficInterfaces)
@@ -234,15 +237,6 @@ func (s *Server) routes() *chi.Mux {
 		pr.Get("/api/cleanup/scan-jobs/{jobID}", s.handleCleanupScanJobStatus)
 		pr.Post("/api/cleanup/scan-jobs/{jobID}/cancel", s.handleCleanupScanJobCancel)
 		pr.Post("/api/cleanup/garbage", s.handleCleanupGarbage)
-
-		pr.Get("/api/cicd/pipelines", s.handleCICDPipelines)
-		pr.Post("/api/cicd/pipelines", s.handleCICDPipelineCreate)
-		pr.Put("/api/cicd/pipelines/{id}", s.handleCICDPipelineUpdate)
-		pr.Delete("/api/cicd/pipelines/{id}", s.handleCICDPipelineDelete)
-		pr.Post("/api/cicd/pipelines/{id}/run", s.handleCICDPipelineRun)
-		pr.Get("/api/cicd/runs", s.handleCICDRuns)
-		pr.Get("/api/cicd/runs/{id}", s.handleCICDRunDetail)
-		pr.Post("/api/cicd/runs/{id}/stop", s.handleCICDRunStop)
 	})
 	return r
 }
@@ -288,7 +282,6 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	incoming.Applications = s.cfg.Applications
 	config.EnsureSystemDefaults(&incoming)
 	config.EnsureLogSources(&incoming)
-	config.EnsurePipelineDefaults(&incoming)
 	s.cfg = &incoming
 
 	if err := s.persistConfigLocked(); err != nil {

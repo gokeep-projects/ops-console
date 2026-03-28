@@ -16,9 +16,10 @@ system:
     default_work_dir: .
     menu_visibility:
         backup: true
-        cicd: true
+        cicd: false
         cleanup: true
         docker: true
+        remote-control: true
         logs: true
         monitor: true
         repair: true
@@ -149,7 +150,7 @@ middleware:
           process_names:
             - keepalived
 cicd:
-    enabled: true
+    enabled: false
     pipelines:
         - id: default-deploy
           name: 默认部署流水线

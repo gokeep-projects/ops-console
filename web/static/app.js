@@ -22,6 +22,10 @@
   trafficSnapshot: null,
   trafficInterfaces: [],
   trafficPollTimer: null,
+  trafficAutoStartTried: false,
+  trafficSelectedPacketID: "",
+  trafficContextPacketID: "",
+  trafficDecodeMode: "auto",
   apps: [],
   logRules: [],
   currentApp: null,
@@ -54,6 +58,9 @@
   dockerLogTimer: null,
   dockerLogContainerID: "",
   dockerLogContainerName: "",
+  remoteMeta: null,
+  remoteConnected: false,
+  remoteAutoConnectTried: false,
   systemRuntimeLogs: [],
   fsTreeCache: {},
   fsModalMode: "",
@@ -67,7 +74,7 @@
 };
 
 const bootState = {
-  total: 11,
+  total: 10,
   done: 0,
 };
 
@@ -84,6 +91,18 @@ let fsModalAllowCreate = false;
 let fsModalTitle = "";
 let fsModalExpanded = new Set();
 let fsModalRoots = [];
+let remoteWS = null;
+let remoteResizeObserver = null;
+let remoteManualClose = false;
+let remoteReconnectTimer = null;
+let remoteReconnectAttempt = 0;
+let remoteCanvas = null;
+let remoteCtx = null;
+let remoteInputBound = false;
+let remoteLastMoveSentAt = 0;
+let remoteMouseDown = false;
+let remoteLastPointerX = 0;
+let remoteLastPointerY = 0;
 
 const TREND_KEEP_MS = 24 * 60 * 60 * 1000;
 const TREND_MINI_HOURS = 4;
@@ -93,6 +112,8 @@ const TREND_DETAIL_MIN_WIDTH = 980;
 const TREND_DETAIL_POINT_PX = 1.8;
 const MONITOR_WS_RETRY_BASE_MS = 1200;
 const MONITOR_WS_RETRY_MAX_MS = 15000;
+const REMOTE_WS_RETRY_BASE_MS = 1000;
+const REMOTE_WS_RETRY_MAX_MS = 10000;
 const TREND_SERIES = {
   cpu: {
     title: "CPU 使用趋势",
@@ -158,15 +179,15 @@ document.addEventListener("DOMContentLoaded", () => {
     bindBackupActions();
     bindCleanupActions();
     bindDockerActions();
-    bindCICDActions();
+    bindRemoteActions();
     bindSystemActions();
     bindModal();
     window.addEventListener("beforeunload", () => {
       stopMonitorSocket();
       stopDockerLogStream();
       stopCleanupScanPolling();
-      stopCICDRunPolling();
       stopTrafficPolling();
+      disconnectRemoteTerminal(false);
     });
     initializeApp();
   } catch (err) {
@@ -379,7 +400,6 @@ async function bootstrap() {
     await runOptionalBootStep("加载脚本定义", loadScripts, { retries: 1, timeout: 16000 });
     await runOptionalBootStep("加载脚本执行历史", loadScriptRuns, { retries: 1, timeout: 16000 });
     await runOptionalBootStep("加载备份记录", loadBackups, { retries: 1, timeout: 16000 });
-    await runOptionalBootStep("加载 CI/CD 配置", loadCICDData, { retries: 1, timeout: 16000 });
     await runOptionalBootStep("加载系统运行日志", loadRuntimeLogs, { retries: 1, timeout: 16000 });
     await runOptionalBootStep("同步系统管理表单", applySystemConfigForm, { retries: 0, timeout: 6000 });
 
@@ -507,6 +527,12 @@ function switchSection(target) {
       showAppToast("加载 Docker 数据失败", "error");
     });
   }
+  if (target === "remote-control") {
+    ensureRemoteTerminalReady().catch((err) => {
+      console.error("prepare remote terminal failed", err);
+      showAppToast("初始化远程控制失败", "error");
+    });
+  }
   if (target === "traffic" || target === "traffic-capture") {
     loadTrafficData(true).catch((err) => {
       console.error("load traffic data failed", err);
@@ -515,12 +541,6 @@ function switchSection(target) {
     startTrafficPolling();
   } else {
     stopTrafficPolling();
-  }
-  if (target === "cicd") {
-    loadCICDData().catch((err) => {
-      console.error("load cicd data failed", err);
-      showAppToast("加载 CI/CD 数据失败", "error");
-    });
   }
   if (target === "system") {
     applySystemConfigForm().catch((err) => {
@@ -835,7 +855,15 @@ function bindLogActions() {
   document.getElementById("logQueryBtn").addEventListener("click", () => queryLogs(false));
   document.getElementById("logErrorBtn").addEventListener("click", () => queryLogs(true));
   document.getElementById("logExportBtn").addEventListener("click", exportLogs);
-  document.getElementById("logSearchApp").addEventListener("input", renderAppCards);
+  document.getElementById("logSourceSelect").addEventListener("change", handleLogSourceChange);
+  document.getElementById("logDeleteCardBtn").addEventListener("click", async () => {
+    const name = String(state.currentApp?.name || "").trim();
+    if (!name) {
+      showAppToast("请先选择日志源", "warning");
+      return;
+    }
+    await deleteLogCard(name);
+  });
   document.getElementById("logAddCardBtn").addEventListener("click", openAddLogCardModal);
 }
 
@@ -845,8 +873,24 @@ function bindTrafficActions() {
   document.getElementById("trafficStartBtn")?.addEventListener("click", startTrafficCapture);
   document.getElementById("trafficStopBtn")?.addEventListener("click", stopTrafficCapture);
   document.getElementById("trafficConnectionSearch")?.addEventListener("input", renderTrafficConnectionTable);
-  document.getElementById("trafficPacketSearch")?.addEventListener("input", renderTrafficPacketTable);
+  document.getElementById("trafficApplyFilterBtn")?.addEventListener("click", renderTrafficPacketTable);
+  document.getElementById("trafficClearFilterBtn")?.addEventListener("click", () => {
+    const preset = document.getElementById("trafficDisplayPreset");
+    const input = document.getElementById("trafficDisplayFilter");
+    if (preset) preset.value = "all";
+    if (input) input.value = "";
+    renderTrafficPacketTable();
+  });
+  document.getElementById("trafficDisplayPreset")?.addEventListener("change", renderTrafficPacketTable);
+  document.getElementById("trafficDisplayFilter")?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    renderTrafficPacketTable();
+  });
   document.getElementById("trafficPacketTable")?.addEventListener("click", handleTrafficPacketClick);
+  document.getElementById("trafficPacketTable")?.addEventListener("contextmenu", handleTrafficPacketContextMenu);
+  document.getElementById("trafficPacketContextMenu")?.addEventListener("click", handleTrafficDecodeMenuClick);
+  document.addEventListener("click", hideTrafficContextMenu);
   document.getElementById("trafficHTTPTable")?.addEventListener("click", handleTrafficHTTPClick);
 }
 
@@ -1048,6 +1092,8 @@ function bindDockerActions() {
   const searchInput = document.getElementById("dockerSearch");
   const scopeSelect = document.getElementById("dockerScope");
   const pageSizeSelect = document.getElementById("dockerPageSize");
+  const batchActionSelect = document.getElementById("dockerBatchActionType");
+  const batchApplyBtn = document.getElementById("dockerBatchApplyBtn");
   const prevBtn = document.getElementById("dockerPrevBtn");
   const nextBtn = document.getElementById("dockerNextBtn");
   const table = document.getElementById("dockerContainerTable");
@@ -1119,17 +1165,418 @@ function bindDockerActions() {
   imageTable?.addEventListener("click", handleDockerImageTableClick);
   document.getElementById("dockerTabContainers")?.addEventListener("click", () => switchDockerTab("containers"));
   document.getElementById("dockerTabImages")?.addEventListener("click", () => switchDockerTab("images"));
-  document.getElementById("dockerBatchStartBtn")?.addEventListener("click", () => runDockerBatchAction("start"));
-  document.getElementById("dockerBatchStopBtn")?.addEventListener("click", () => runDockerBatchAction("stop"));
-  document.getElementById("dockerBatchRestartBtn")?.addEventListener("click", () => runDockerBatchAction("restart"));
-  document.getElementById("dockerBatchRemoveBtn")?.addEventListener("click", () => runDockerBatchAction("remove"));
-  document.getElementById("dockerBatchRemoveImagesBtn")?.addEventListener("click", () => runDockerImageBatchAction("remove"));
+  if (batchApplyBtn) {
+    batchApplyBtn.addEventListener("click", async () => {
+      const action = String(batchActionSelect?.value || "").trim();
+      if (!action) return;
+      if (action === "remove-image") {
+        await runDockerImageBatchAction("remove");
+      } else {
+        await runDockerBatchAction(action);
+      }
+    });
+  }
+  refreshDockerBatchActionUI();
 }
 
-function bindCICDActions() {
-  document.getElementById("cicdRefreshBtn")?.addEventListener("click", () => loadCICDData(true));
-  document.getElementById("cicdAddPipelineBtn")?.addEventListener("click", () => openCICDPipelineEditor());
-  document.getElementById("cicdStopRunBtn")?.addEventListener("click", () => stopCurrentCICDRun());
+function bindRemoteActions() {
+  document.getElementById("remoteConnectBtn")?.addEventListener("click", () => {
+    connectRemoteTerminal(true).catch((err) => {
+      console.error("connect remote desktop failed", err);
+      showAppToast(err.message || "连接远程桌面失败", "error");
+    });
+  });
+  document.getElementById("remoteDisconnectBtn")?.addEventListener("click", () => disconnectRemoteTerminal(true));
+  document.getElementById("remoteFullscreenBtn")?.addEventListener("click", () => toggleRemoteFullscreen());
+  document.getElementById("remoteFps")?.addEventListener("change", () => reconnectRemoteDesktop());
+  document.getElementById("remoteQuality")?.addEventListener("change", () => reconnectRemoteDesktop());
+  document.getElementById("remoteScale")?.addEventListener("change", () => reconnectRemoteDesktop());
+  document.addEventListener("keydown", handleRemoteHotkeys);
+  document.addEventListener("keyup", handleRemoteHotkeys);
+}
+
+async function ensureRemoteTerminalReady() {
+  if (!remoteCanvas) {
+    initRemoteDesktopCanvas();
+  }
+  if (!state.remoteMeta) {
+    await loadRemoteMeta();
+  } else {
+    applyRemoteMetaToUI();
+  }
+  if (!state.remoteAutoConnectTried) {
+    state.remoteAutoConnectTried = true;
+    await connectRemoteTerminal(false);
+  }
+}
+
+function initRemoteDesktopCanvas() {
+  const canvas = document.getElementById("remoteDesktopCanvas");
+  const wrap = document.getElementById("remoteDesktopWrap");
+  if (!canvas || !wrap || remoteCanvas) return;
+  remoteCanvas = canvas;
+  remoteCtx = canvas.getContext("2d");
+  if (!remoteCtx) {
+    throw new Error("浏览器不支持画布渲染");
+  }
+  remoteCtx.fillStyle = "#0d1628";
+  remoteCtx.fillRect(0, 0, canvas.width, canvas.height);
+
+  if (!remoteInputBound) {
+    bindRemoteDesktopInput(canvas);
+    remoteInputBound = true;
+  }
+  if (wrap && typeof ResizeObserver === "function") {
+    remoteResizeObserver = new ResizeObserver(() => fitRemoteTerminal());
+    remoteResizeObserver.observe(wrap);
+  }
+  window.addEventListener("resize", fitRemoteTerminal);
+}
+
+async function loadRemoteMeta() {
+  const res = await fetchWithTimeout("/api/remote/meta", 12000);
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || "加载远程控制配置失败");
+  }
+  if (data && data.available === false) {
+    throw new Error(data.error || "服务器未检测到可用桌面");
+  }
+  state.remoteMeta = data || null;
+  applyRemoteMetaToUI();
+  return state.remoteMeta;
+}
+
+function applyRemoteMetaToUI() {
+  const fps = document.getElementById("remoteFps");
+  const quality = document.getElementById("remoteQuality");
+  const scale = document.getElementById("remoteScale");
+  if (fps && state.remoteMeta?.default_fps) fps.value = String(state.remoteMeta.default_fps);
+  if (quality && state.remoteMeta?.default_quality) quality.value = String(state.remoteMeta.default_quality);
+  if (scale && state.remoteMeta?.default_scale) scale.value = String(state.remoteMeta.default_scale);
+  if (state.remoteMeta && Number(state.remoteMeta.can_input) === 0) {
+    setRemoteConnectionStatus("unknown", "仅支持桌面查看，当前系统不支持网页输入控制");
+  } else {
+    const w = Number(state.remoteMeta?.width || 0);
+    const h = Number(state.remoteMeta?.height || 0);
+    if (w > 0 && h > 0) {
+      setRemoteOverlay(`等待连接桌面 (${w}x${h})`);
+    }
+  }
+}
+
+async function connectRemoteTerminal(showToast = true) {
+  await ensureRemoteTerminalReady();
+  if (remoteWS && (remoteWS.readyState === WebSocket.OPEN || remoteWS.readyState === WebSocket.CONNECTING)) {
+    remoteCanvas?.focus();
+    return;
+  }
+  clearRemoteReconnectTimer();
+
+  const protocol = location.protocol === "https:" ? "wss" : "ws";
+  const fps = Number(getInputValue("remoteFps") || state.remoteMeta?.default_fps || 8);
+  const quality = Number(getInputValue("remoteQuality") || state.remoteMeta?.default_quality || 60);
+  const scale = Number(getInputValue("remoteScale") || state.remoteMeta?.default_scale || 0.75);
+  const query = new URLSearchParams({
+    fps: String(Number.isFinite(fps) ? fps : 8),
+    quality: String(Number.isFinite(quality) ? quality : 60),
+    scale: String(Number.isFinite(scale) ? scale : 0.75),
+  });
+  remoteManualClose = false;
+  state.remoteConnected = false;
+  setRemoteConnectionStatus("unknown", "正在连接远程桌面...");
+  updateRemoteControlButtons(false);
+  setRemoteOverlay("正在连接远程桌面...");
+
+  const ws = new WebSocket(`${protocol}://${location.host}/ws/remote/desktop?${query.toString()}`);
+  ws.binaryType = "arraybuffer";
+  remoteWS = ws;
+
+  ws.addEventListener("message", (event) => {
+    if (typeof event.data !== "string") {
+      drawRemoteDesktopFrame(event.data);
+      return;
+    }
+    let msg = null;
+    try {
+      msg = JSON.parse(event.data);
+    } catch {
+      return;
+    }
+    const type = String(msg?.type || "").trim();
+    if (type === "meta") {
+      state.remoteConnected = true;
+      const fw = Number(msg.width || 0);
+      const fh = Number(msg.height || 0);
+      if (remoteCanvas && fw > 0 && fh > 0 && (remoteCanvas.width !== fw || remoteCanvas.height !== fh)) {
+        remoteCanvas.width = fw;
+        remoteCanvas.height = fh;
+      }
+      setRemoteConnectionStatus("up", `已连接 ${fw || "-"}x${fh || "-"} · ${msg.fps || fps} FPS`);
+      remoteReconnectAttempt = 0;
+      clearRemoteReconnectTimer();
+      updateRemoteControlButtons(true);
+      setRemoteOverlay("");
+      fitRemoteTerminal();
+      remoteCanvas?.focus();
+      if (showToast) showAppToast("远程桌面连接成功", "success");
+      return;
+    }
+    if (type === "error") {
+      const text = String(msg.error || "远程桌面异常");
+      setRemoteConnectionStatus("down", text);
+      setRemoteOverlay(text);
+      if (showToast) showAppToast(text, "error");
+      return;
+    }
+  });
+
+  ws.addEventListener("close", () => {
+    if (remoteWS !== ws) return;
+    remoteWS = null;
+    state.remoteConnected = false;
+    updateRemoteControlButtons(false);
+    if (!remoteManualClose) {
+      setRemoteConnectionStatus("down", "连接已断开");
+      setRemoteOverlay("连接已断开，点击“连接桌面”重试");
+    } else {
+      setRemoteConnectionStatus("unknown", "连接已断开");
+      setRemoteOverlay("已断开连接");
+    }
+    if (!remoteManualClose) {
+      scheduleRemoteReconnect();
+    }
+  });
+
+  ws.addEventListener("error", () => {
+    if (remoteWS !== ws) return;
+    setRemoteConnectionStatus("down", "连接失败，请检查服务器图形环境");
+    setRemoteOverlay("连接失败");
+  });
+}
+
+function disconnectRemoteTerminal(showToast = false) {
+  remoteManualClose = true;
+  clearRemoteReconnectTimer();
+  remoteReconnectAttempt = 0;
+  if (remoteWS && (remoteWS.readyState === WebSocket.OPEN || remoteWS.readyState === WebSocket.CONNECTING)) {
+    remoteWS.close();
+  }
+  remoteWS = null;
+  state.remoteConnected = false;
+  updateRemoteControlButtons(false);
+  setRemoteConnectionStatus("unknown", "未连接");
+  setRemoteOverlay("已断开连接");
+  if (showToast) showAppToast("远程桌面已断开", "success");
+}
+
+function clearRemoteReconnectTimer() {
+  if (remoteReconnectTimer) {
+    clearTimeout(remoteReconnectTimer);
+    remoteReconnectTimer = null;
+  }
+}
+
+function scheduleRemoteReconnect() {
+  if (remoteReconnectTimer) return;
+  const attempt = remoteReconnectAttempt + 1;
+  remoteReconnectAttempt = attempt;
+  const delay = Math.min(REMOTE_WS_RETRY_MAX_MS, REMOTE_WS_RETRY_BASE_MS * Math.pow(2, Math.min(5, attempt - 1)));
+  setRemoteConnectionStatus("down", `连接断开，${Math.round(delay / 1000)} 秒后自动重连...`);
+  remoteReconnectTimer = setTimeout(() => {
+    remoteReconnectTimer = null;
+    if (remoteManualClose) return;
+    connectRemoteTerminal(false).catch((err) => {
+      console.error("remote auto reconnect failed", err);
+      scheduleRemoteReconnect();
+    });
+  }, delay);
+}
+
+function drawRemoteDesktopFrame(buffer) {
+  if (!remoteCtx || !remoteCanvas || !buffer) return;
+  const blob = new Blob([buffer], { type: "image/jpeg" });
+  createImageBitmap(blob).then((bitmap) => {
+    if (!remoteCtx || !remoteCanvas) {
+      bitmap.close();
+      return;
+    }
+    remoteCtx.clearRect(0, 0, remoteCanvas.width, remoteCanvas.height);
+    remoteCtx.drawImage(bitmap, 0, 0, remoteCanvas.width, remoteCanvas.height);
+    bitmap.close();
+  }).catch(() => {});
+}
+
+function fitRemoteTerminal() {
+  const wrap = document.getElementById("remoteDesktopWrap");
+  const canvas = remoteCanvas;
+  if (!wrap || !canvas) return;
+  const w = Math.max(1, wrap.clientWidth);
+  const h = Math.max(1, wrap.clientHeight);
+  canvas.style.width = `${w}px`;
+  canvas.style.height = `${h}px`;
+}
+
+function setRemoteOverlay(text) {
+  const el = document.getElementById("remoteDesktopOverlay");
+  if (!el) return;
+  const t = String(text || "").trim();
+  el.textContent = t;
+  el.style.display = t ? "" : "none";
+}
+
+function bindRemoteDesktopInput(canvas) {
+  canvas.addEventListener("mousedown", (event) => {
+    remoteMouseDown = true;
+    canvas.focus();
+    const point = normalizeRemotePointer(event, canvas);
+    sendRemoteDesktopInput({ type: "down", x: point.x, y: point.y, button: mapMouseButton(event.button) });
+  });
+  canvas.addEventListener("mouseup", (event) => {
+    remoteMouseDown = false;
+    const point = normalizeRemotePointer(event, canvas);
+    sendRemoteDesktopInput({ type: "up", x: point.x, y: point.y, button: mapMouseButton(event.button) });
+  });
+  canvas.addEventListener("mousemove", (event) => {
+    const now = Date.now();
+    if (!remoteMouseDown && now - remoteLastMoveSentAt < 26) return;
+    remoteLastMoveSentAt = now;
+    const point = normalizeRemotePointer(event, canvas);
+    sendRemoteDesktopInput({ type: "move", x: point.x, y: point.y });
+  });
+  canvas.addEventListener("mouseleave", () => {
+    if (remoteMouseDown) {
+      remoteMouseDown = false;
+      sendRemoteDesktopInput({ type: "up", x: remoteLastPointerX, y: remoteLastPointerY, button: "left" });
+    }
+  });
+  canvas.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const delta = event.deltaY > 0 ? -1 : 1;
+    sendRemoteDesktopInput({ type: "wheel", delta });
+  }, { passive: false });
+  canvas.addEventListener("contextmenu", (event) => event.preventDefault());
+}
+
+function normalizeRemotePointer(event, canvas) {
+  const rect = canvas.getBoundingClientRect();
+  const x = (event.clientX - rect.left) / Math.max(1, rect.width);
+  const y = (event.clientY - rect.top) / Math.max(1, rect.height);
+  const point = {
+    x: Math.max(0, Math.min(1, x)),
+    y: Math.max(0, Math.min(1, y)),
+  };
+  remoteLastPointerX = point.x;
+  remoteLastPointerY = point.y;
+  return point;
+}
+
+function mapMouseButton(button) {
+  if (button === 2) return "right";
+  if (button === 1) return "middle";
+  return "left";
+}
+
+async function sendRemoteDesktopInput(payload) {
+  if (!state.remoteConnected) return;
+  if (state.remoteMeta && Number(state.remoteMeta.can_input) === 0) return;
+
+  if (remoteWS && remoteWS.readyState === WebSocket.OPEN) {
+    try {
+      remoteWS.send(JSON.stringify({ type: "input", input: payload }));
+      return;
+    } catch (_) {
+      // fallback to HTTP below
+    }
+  }
+
+  try {
+    const res = await fetch("/api/remote/input", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok && res.status !== 400) {
+      const data = await res.json().catch(() => ({}));
+      if (data?.error) {
+        setRemoteConnectionStatus("down", data.error);
+      }
+    }
+  } catch (_) {
+    // ignore transient input failures
+  }
+}
+
+function reconnectRemoteDesktop() {
+  if (!state.remoteConnected) return;
+  disconnectRemoteTerminal(false);
+  connectRemoteTerminal(false).catch((err) => {
+    console.error("reconnect remote desktop failed", err);
+    setRemoteConnectionStatus("down", err.message || "重连失败");
+  });
+}
+
+function setRemoteConnectionStatus(level, text) {
+  const badge = document.getElementById("remoteStatusBadge");
+  const desc = document.getElementById("remoteStatusText");
+  if (badge) {
+    badge.classList.remove("up", "down", "unknown");
+    const next = level === "up" || level === "down" ? level : "unknown";
+    badge.classList.add(next);
+    badge.textContent = next === "up" ? "已连接" : next === "down" ? "异常" : "未连接";
+  }
+  if (desc) desc.textContent = text || "-";
+}
+
+function updateRemoteControlButtons(connected) {
+  const connectBtn = document.getElementById("remoteConnectBtn");
+  const disconnectBtn = document.getElementById("remoteDisconnectBtn");
+  if (connectBtn) connectBtn.disabled = !!connected;
+  if (disconnectBtn) disconnectBtn.disabled = !connected;
+}
+
+function toggleRemoteFullscreen(force = null) {
+  const wrap = document.getElementById("remoteDesktopWrap");
+  const btn = document.getElementById("remoteFullscreenBtn");
+  if (!wrap) return;
+  const next = typeof force === "boolean" ? force : !wrap.classList.contains("fullscreen");
+  wrap.classList.toggle("fullscreen", next);
+  document.body.classList.toggle("remote-desktop-fullscreen", next);
+  if (btn) btn.textContent = next ? "退出全屏" : "全屏";
+  fitRemoteTerminal();
+}
+
+function handleRemoteHotkeys(event) {
+  const visible = document.getElementById("remote-control")?.classList.contains("visible");
+  if (!visible) return;
+  const key = String(event.key || "").toLowerCase();
+  const isKeyDown = event.type === "keydown";
+
+  if (event.key === "Escape" && document.getElementById("remoteDesktopWrap")?.classList.contains("fullscreen")) {
+    toggleRemoteFullscreen(false);
+    return;
+  }
+  if (event.ctrlKey && event.shiftKey && key === "f") {
+    event.preventDefault();
+    toggleRemoteFullscreen();
+    return;
+  }
+  if (!state.remoteConnected) return;
+
+  const tag = String(event.target?.tagName || "").toLowerCase();
+  const editable = tag === "input" || tag === "textarea" || tag === "select" || event.target?.isContentEditable;
+  const canvasFocused = document.activeElement === remoteCanvas;
+  const fullscreen = document.getElementById("remoteDesktopWrap")?.classList.contains("fullscreen");
+  if (!canvasFocused && !fullscreen) return;
+  if (editable) return;
+
+  if (event.key === "Meta" || event.key === "Unidentified") return;
+  event.preventDefault();
+  sendRemoteDesktopInput({
+    type: isKeyDown ? "key_down" : "key_up",
+    key: String(event.key || ""),
+    code: String(event.code || ""),
+  });
 }
 
 function bindSystemActions() {
@@ -3071,37 +3518,58 @@ async function loadApps() {
 }
 
 function renderAppCards() {
-  const box = document.getElementById("appCards");
-  const keyword = (document.getElementById("logSearchApp").value || "").toLowerCase();
-  const apps = state.apps.filter((x) => `${x.name || ""} ${x.description || ""}`.toLowerCase().includes(keyword));
-  box.innerHTML = "";
+  const select = document.getElementById("logSourceSelect");
+  const deleteBtn = document.getElementById("logDeleteCardBtn");
+  if (!select) return;
 
-  apps.forEach((app) => {
-    const div = document.createElement("div");
-    div.className = "app-card" + (state.currentApp?.name === app.name ? " active" : "");
-    div.innerHTML = `
-      <div class="app-card-top">
-        <h4>${escapeHTML(app.name)}</h4>
-        <button class="btn sm danger log-card-delete-btn" data-name="${escapeHTML(app.name)}">删除</button>
-      </div>
-      <p>${escapeHTML(localizeLogSourceType(app.type))}</p>
-      <p>日志源: ${num(app.log_files?.length || 0)}</p>
-      <p>${escapeHTML(app.description || "-")}</p>
-    `;
-    div.querySelector(".log-card-delete-btn")?.addEventListener("click", async (event) => {
-      event.stopPropagation();
-      await deleteLogCard(app.name);
+  const apps = Array.isArray(state.apps) ? state.apps : [];
+  const currentName = String(state.currentApp?.name || "").trim();
+  const hasCurrent = apps.some((x) => String(x?.name || "").trim() === currentName);
+
+  const options = [];
+  if (!apps.length) {
+    options.push('<option value="">暂无日志源</option>');
+  } else {
+    options.push('<option value="">请选择日志源</option>');
+    apps.forEach((app) => {
+      const name = String(app?.name || "").trim();
+      if (!name) return;
+      const typeText = localizeLogSourceType(app?.type);
+      const fileCount = Number(app?.log_files?.length || 0);
+      options.push(`<option value="${escapeHTML(name)}">${escapeHTML(`${name} [${typeText}] (${fileCount} 个日志源)`)}</option>`);
     });
-    div.addEventListener("click", () => {
-      state.currentApp = app;
-      setText("logCurrentApp", `当前应用：${app.name}`);
-      renderLogFileSelector();
-      renderAppCards();
-      queryLogs(false);
-      syncLogRealtimeState("logs");
-    });
-    box.appendChild(div);
-  });
+  }
+
+  select.innerHTML = options.join("");
+  select.value = hasCurrent ? currentName : "";
+  if (deleteBtn) deleteBtn.disabled = !hasCurrent;
+}
+
+function handleLogSourceChange() {
+  const select = document.getElementById("logSourceSelect");
+  if (!select) return;
+  const nextName = String(select.value || "").trim();
+  if (!nextName) {
+    state.currentApp = null;
+    setText("logCurrentApp", "当前日志源：无");
+    renderLogFileSelector();
+    const result = document.getElementById("logResult");
+    if (result) result.innerHTML = '<div class="hint">请选择日志源后再查询</div>';
+    const stats = document.getElementById("logStats");
+    if (stats) stats.innerHTML = "";
+    renderAppCards();
+    stopLogRealtimeLoop();
+    return;
+  }
+  const app = (state.apps || []).find((x) => String(x?.name || "").trim() === nextName);
+  if (!app) return;
+
+  state.currentApp = app;
+  setText("logCurrentApp", `当前日志源：${app.name}`);
+  renderLogFileSelector();
+  renderAppCards();
+  queryLogs(false);
+  syncLogRealtimeState("logs");
 }
 
 function localizeLogSourceType(raw) {
@@ -3128,10 +3596,10 @@ function ensureCurrentLogCard(triggerQuery = false) {
     state.currentApp = null;
     stopLogRealtimeLoop();
     renderAppCards();
-    setText("logCurrentApp", "当前应用：无");
+    setText("logCurrentApp", "当前日志源：无");
     renderLogFileSelector();
     const result = document.getElementById("logResult");
-    if (result) result.textContent = "";
+    if (result) result.innerHTML = '<div class="hint">暂无日志源，请先添加</div>';
     return;
   }
 
@@ -3141,7 +3609,7 @@ function ensureCurrentLogCard(triggerQuery = false) {
 
   renderAppCards();
   if (state.currentApp) {
-    setText("logCurrentApp", `当前应用：${state.currentApp.name}`);
+    setText("logCurrentApp", `当前日志源：${state.currentApp.name}`);
     renderLogFileSelector();
     if (triggerQuery) queryLogs(false);
     syncLogRealtimeState();
@@ -3152,9 +3620,9 @@ function openAddLogCardModal() {
   const html = `
     <div class="system-detail-grid">
       <section class="system-detail-block">
-        <h4>新增日志卡片</h4>
+        <h4>新增日志源</h4>
         <div class="row">
-          <input id="newLogName" class="input" placeholder="卡片名称，例如：系统日志 / nginx日志" />
+          <input id="newLogName" class="input" placeholder="日志源名称，例如：系统日志 / nginx日志" />
           <select id="newLogType" class="input">
             <option value="custom-log">自定义日志文件</option>
             <option value="system-log">系统日志文件</option>
@@ -3168,12 +3636,12 @@ function openAddLogCardModal() {
           <textarea id="newLogFiles" class="input" rows="5" style="width:100%;" placeholder="每行一个日志源。文件日志写绝对/相对路径；Windows 事件日志写频道名，如 System / Application / Security"></textarea>
         </div>
         <div class="row">
-          <button id="saveNewLogCardBtn" class="btn">保存卡片</button>
+          <button id="saveNewLogCardBtn" class="btn">保存日志源</button>
         </div>
       </section>
     </div>
   `;
-  openModal("添加日志卡片", html);
+  openModal("添加日志源", html);
   const saveBtn = document.getElementById("saveNewLogCardBtn");
   if (!saveBtn) return;
   saveBtn.addEventListener("click", async () => {
@@ -3186,7 +3654,7 @@ function openAddLogCardModal() {
       .map((x) => x.trim())
       .filter((x) => x.length > 0);
     if (!name) {
-      showAppToast("请填写卡片名称", "warning");
+      showAppToast("请填写日志源名称", "warning");
       return;
     }
     if (!logFiles.length) {
@@ -3205,22 +3673,22 @@ async function createLogCard(payload) {
   });
   const data = await res.json();
   if (!res.ok) {
-    showAppToast(data.error || "新增日志卡片失败", "error");
+    showAppToast(data.error || "新增日志源失败", "error");
     return;
   }
   closeModal();
   await loadApps();
-  showAppToast("日志卡片新增成功", "success");
+  showAppToast("日志源新增成功", "success");
 }
 
 async function deleteLogCard(name) {
   const appName = String(name || "").trim();
   if (!appName) return;
-  if (!confirm(`确认删除日志卡片「${appName}」？`)) return;
+  if (!confirm(`确认删除日志源「${appName}」？`)) return;
   const res = await fetch(`/api/logs/apps/${encodeURIComponent(appName)}`, { method: "DELETE" });
   const data = await res.json();
   if (!res.ok) {
-    showAppToast(data.error || "删除日志卡片失败", "error");
+    showAppToast(data.error || "删除日志源失败", "error");
     return;
   }
   if (state.currentApp?.name === appName) {
@@ -3228,7 +3696,7 @@ async function deleteLogCard(name) {
     stopLogRealtimeLoop();
   }
   await loadApps();
-  showAppToast(`已删除日志卡片：${appName}`, "success");
+  showAppToast(`已删除日志源：${appName}`, "success");
 }
 
 function renderLogFileSelector() {
@@ -3254,7 +3722,7 @@ async function queryLogs(errorOnly, options = {}) {
   const fromRealtime = !!options.fromRealtime;
 
   if (!state.currentApp) {
-    if (!silent) showAppToast("请先选择应用", "warning");
+    if (!silent) showAppToast("请先选择日志源", "warning");
     return;
   }
 
@@ -3338,7 +3806,7 @@ function parseLogTimeValue(raw) {
 
 async function exportLogs() {
   if (!state.currentApp) {
-    showAppToast("请先选择应用", "warning");
+    showAppToast("请先选择日志源", "warning");
     return;
   }
 
@@ -3491,6 +3959,16 @@ function renderTableHTML(headers, rows, allowHTML = false) {
   const body = rows
     .map((row) => {
       const rowClass = Array.isArray(row) ? "" : escapeHTML(String(row?.rowClass || "").trim());
+      const attrText = Array.isArray(row)
+        ? ""
+        : Object.entries(row?.attrs || {})
+            .map(([k, v]) => {
+              const key = escapeHTML(String(k || "").trim());
+              const val = escapeHTML(String(v ?? ""));
+              if (!key) return "";
+              return ` ${key}="${val}"`;
+            })
+            .join("");
       const cells = Array.isArray(row) ? row : row?.cells || [];
       const cols = cells
         .map((col) => {
@@ -3498,7 +3976,7 @@ function renderTableHTML(headers, rows, allowHTML = false) {
           return `<td>${escapeHTML(String(col ?? ""))}</td>`;
         })
         .join("");
-      return rowClass ? `<tr class="${rowClass}">${cols}</tr>` : `<tr>${cols}</tr>`;
+      return rowClass ? `<tr class="${rowClass}"${attrText}>${cols}</tr>` : `<tr${attrText}>${cols}</tr>`;
     })
     .join("");
   return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
@@ -4470,7 +4948,7 @@ function renderSystemMenuVisibility() {
     backup: "数据备份",
     cleanup: "数据清理",
     docker: "Docker管理",
-    cicd: "CI/CD",
+    "remote-control": "远程控制",
     system: "系统管理",
   };
   box.innerHTML = Object.entries(labels)
@@ -4651,11 +5129,12 @@ function renderDirectoryPickerModal() {
         const path = String(node.path || "");
         const encoded = encodeURIComponent(path);
         const expanded = fsModalExpanded.has(path);
-        const checked = state.fsModalSelected.includes(path) ? "checked" : "";
+        const isChecked = state.fsModalSelected.includes(path);
+        const checked = isChecked ? "checked" : "";
         const children = expanded ? state.fsTreeCache[path] || [] : [];
         return `
           <li class="fs-tree-node">
-            <div class="fs-tree-row">
+            <div class="fs-tree-row${isChecked ? " selected" : ""}">
               <button class="btn sm fs-tree-toggle" type="button" data-fs-expand="${encoded}">${node.has_children ? (expanded ? "−" : "+") : "·"}</button>
               <label class="fs-tree-label">
                 <input type="${fsModalMulti ? "checkbox" : "radio"}" name="fs-picker" data-fs-select="${encoded}" ${checked} />
@@ -4989,9 +5468,38 @@ function switchDockerTab(tab) {
   document.getElementById("dockerImageTable")?.classList.toggle("hidden", state.dockerTab !== "images");
   document.getElementById("dockerTabContainers")?.classList.toggle("active", state.dockerTab === "containers");
   document.getElementById("dockerTabImages")?.classList.toggle("active", state.dockerTab === "images");
+  refreshDockerBatchActionUI();
   if (state.dockerTab === "images") {
     loadDockerImages(true);
   }
+}
+
+function refreshDockerBatchActionUI() {
+  const select = document.getElementById("dockerBatchActionType");
+  const applyBtn = document.getElementById("dockerBatchApplyBtn");
+  if (!select) return;
+  const isImages = state.dockerTab === "images";
+  const prev = String(select.value || "").trim();
+  const options = isImages
+    ? [{ value: "remove-image", label: "批量删除镜像" }]
+    : [
+        { value: "start", label: "批量启动容器" },
+        { value: "stop", label: "批量停止容器" },
+        { value: "restart", label: "批量重启容器" },
+        { value: "remove", label: "批量删除容器" },
+      ];
+  select.innerHTML = options.map((item) => `<option value="${item.value}">${item.label}</option>`).join("");
+  const hit = options.some((item) => item.value === prev);
+  select.value = hit ? prev : options[0].value;
+  if (applyBtn) {
+    applyBtn.textContent = isImages ? "删除所选镜像" : "执行容器批量操作";
+    applyBtn.classList.toggle("danger", isImages || select.value === "remove" || select.value === "stop");
+  }
+  select.onchange = () => {
+    if (!applyBtn) return;
+    const action = String(select.value || "").trim();
+    applyBtn.classList.toggle("danger", action === "remove-image" || action === "remove" || action === "stop");
+  };
 }
 
 async function loadDockerImages(force = false) {
@@ -5100,7 +5608,7 @@ function syncDockerSelections() {
 async function loadTrafficData(force = false) {
   let data = null;
   try {
-    const res = await fetchWithTimeout("/api/traffic?packet_limit=300&http_limit=120", 20000);
+    const res = await fetchWithTimeout("/api/traffic?packet_limit=1200&http_limit=200", 20000);
     data = await res.json();
     if (!res.ok) {
       showAppToast(data.error || "加载流量分析失败", "error");
@@ -5118,6 +5626,13 @@ async function loadTrafficData(force = false) {
   renderTrafficConnectionTable();
   renderTrafficPacketTable();
   renderTrafficHTTPTable();
+  if (!state.trafficSnapshot?.status?.active && !state.trafficAutoStartTried) {
+    const section = String(document.querySelector(".panel.visible")?.id || "").trim();
+    if (section === "traffic-capture") {
+      state.trafficAutoStartTried = true;
+      await startTrafficCapture({ silent: true, auto: true });
+    }
+  }
   return state.trafficSnapshot;
 }
 
@@ -5150,6 +5665,19 @@ function renderTrafficInterfaceOptions() {
     if ((item.name || "") === active || (!active && (item.name || "") === preferred)) op.selected = true;
     select.appendChild(op);
   });
+
+  const builtin = document.getElementById("trafficBuiltinFilter");
+  const custom = document.getElementById("trafficCustomFilter");
+  const currentFilter = String(state.trafficSnapshot?.status?.capture_filter || "").trim();
+  if (builtin && currentFilter) {
+    const hasBuiltin = Array.from(builtin.options || []).some((op) => String(op.value || "").trim() === currentFilter);
+    if (hasBuiltin) {
+      builtin.value = currentFilter;
+      if (custom) custom.value = "";
+    } else if (custom) {
+      custom.value = currentFilter;
+    }
+  }
 }
 
 function renderTrafficStatusSummary() {
@@ -5160,6 +5688,7 @@ function renderTrafficStatusSummary() {
     } else {
       const parts = [
         `抓包接口 ${status.interface_name || "-"}`,
+        `抓包过滤 ${status.capture_filter || "-"}`,
         `启动时间 ${formatTimeValue(status.started_at || Date.now())}`,
         `本机地址 ${Array.isArray(status.local_addresses) ? status.local_addresses.join(", ") : "-"}`,
       ];
@@ -5209,39 +5738,201 @@ function renderTrafficConnectionTable() {
 }
 
 function renderTrafficPacketTable() {
-  const keyword = String(document.getElementById("trafficPacketSearch")?.value || "").trim().toLowerCase();
+  const preset = String(document.getElementById("trafficDisplayPreset")?.value || "all").trim().toLowerCase();
+  const expression = String(document.getElementById("trafficDisplayFilter")?.value || "").trim();
   const list = Array.isArray(state.trafficSnapshot?.packets) ? state.trafficSnapshot.packets : [];
-  const rows = list
-    .filter((item) => {
-      if (!keyword) return true;
-      const searchable = [
-        item.process_name,
-        item.pid,
-        item.protocol,
-        item.app_protocol,
-        item.src_ip,
-        item.src_port,
-        item.dst_ip,
-        item.dst_port,
-        item.info,
-        item.payload_preview,
-      ].join(" ").toLowerCase();
-      return searchable.includes(keyword);
+  const ordered = [...list].sort((a, b) => parseLogTimeValue(a?.timestamp) - parseLogTimeValue(b?.timestamp));
+  const filtered = ordered.filter((item) => packetMatchesTrafficFilter(item, preset, expression));
+  const packetTotal = Number(state.trafficSnapshot?.status?.packet_count || ordered.length || 0);
+  const startNo = Math.max(1, packetTotal - filtered.length + 1);
+  const rows = filtered.slice(-1000).map((item, idx) => {
+    const rowNo = startNo + idx;
+    const selected = String(state.trafficSelectedPacketID || "") === String(item.id || "");
+    return {
+      rowClass: selected ? "traffic-packet-selected" : "",
+      attrs: { "data-traffic-packet-id": String(item.id || "") },
+      cells: [
+        rowNo,
+        formatTimeValue(item.timestamp),
+        `${item.src_ip || "-"}:${item.src_port || 0}`,
+        `${item.dst_ip || "-"}:${item.dst_port || 0}`,
+        `${item.protocol || "-"}${item.app_protocol ? `/${item.app_protocol}` : ""}`,
+        num(item.length || 0),
+        item.info || "-",
+      ],
+    };
+  });
+  renderTable("trafficPacketTable", ["编号", "时间", "源地址", "目的地址", "协议", "长度", "信息"], rows);
+
+  if (!filtered.length) {
+    state.trafficSelectedPacketID = "";
+    renderTrafficPacketDetail(null);
+    setText("trafficPacketHint", "当前过滤条件下无数据包");
+    return;
+  }
+  const selectedExists = filtered.some((item) => String(item.id || "") === String(state.trafficSelectedPacketID || ""));
+  if (!selectedExists) {
+    state.trafficSelectedPacketID = String(filtered[filtered.length - 1]?.id || "");
+  }
+  const selected = filtered.find((item) => String(item.id || "") === String(state.trafficSelectedPacketID || "")) || filtered[filtered.length - 1];
+  renderTrafficPacketDetail(selected);
+  setText("trafficPacketHint", `显示 ${num(filtered.length)} / ${num(ordered.length)} 个数据包`);
+}
+
+function packetMatchesTrafficFilter(item, preset, expression) {
+  const protocol = String(item?.protocol || "").trim().toLowerCase();
+  const appProtocol = String(item?.app_protocol || "").trim().toLowerCase();
+  const srcPort = Number(item?.src_port || 0);
+  const dstPort = Number(item?.dst_port || 0);
+  const info = String(item?.info || "").trim().toLowerCase();
+  const payload = String(item?.payload_preview || "").trim().toLowerCase();
+  const processName = String(item?.process_name || "").trim().toLowerCase();
+  const src = `${String(item?.src_ip || "").trim().toLowerCase()}:${srcPort}`;
+  const dst = `${String(item?.dst_ip || "").trim().toLowerCase()}:${dstPort}`;
+  const searchable = [processName, protocol, appProtocol, src, dst, info, payload].join(" ");
+
+  switch (preset) {
+    case "tcp":
+      if (protocol !== "tcp") return false;
+      break;
+    case "udp":
+      if (protocol !== "udp") return false;
+      break;
+    case "http":
+      if (!(appProtocol === "http" || info.includes("http"))) return false;
+      break;
+    case "https":
+      if (!(appProtocol === "https" || srcPort === 443 || dstPort === 443 || info.includes("tls") || info.includes("https"))) return false;
+      break;
+    case "dns":
+      if (!(srcPort === 53 || dstPort === 53 || info.includes("dns"))) return false;
+      break;
+    default:
+      break;
+  }
+
+  const query = String(expression || "").trim().toLowerCase();
+  if (!query) return true;
+  const tokens = query.split(/\s+/).filter(Boolean);
+  if (!tokens.length) return true;
+
+  return tokens.every((token) => {
+    const mLen = token.match(/^len(>=|<=|>|<|=)(\d+)$/);
+    if (mLen) {
+      const op = mLen[1];
+      const val = Number(mLen[2]);
+      const len = Number(item?.length || 0);
+      if (op === ">") return len > val;
+      if (op === "<") return len < val;
+      if (op === ">=") return len >= val;
+      if (op === "<=") return len <= val;
+      return len === val;
+    }
+    const mKey = token.match(/^([a-z_]+):(.*)$/);
+    if (mKey) {
+      const key = mKey[1];
+      const val = String(mKey[2] || "").trim().toLowerCase();
+      if (!val) return true;
+      if (key === "proto" || key === "protocol") return protocol.includes(val) || appProtocol.includes(val);
+      if (key === "src") return src.includes(val) || String(item?.src_ip || "").toLowerCase().includes(val);
+      if (key === "dst") return dst.includes(val) || String(item?.dst_ip || "").toLowerCase().includes(val);
+      if (key === "port") return String(srcPort).includes(val) || String(dstPort).includes(val);
+      if (key === "pid") return String(item?.pid || "").includes(val);
+      if (key === "proc" || key === "process") return processName.includes(val);
+      if (key === "info") return info.includes(val);
+      if (key === "contains" || key === "payload") return payload.includes(val) || String(item?.decoded_text || "").toLowerCase().includes(val);
+      return searchable.includes(val);
+    }
+    return searchable.includes(token);
+  });
+}
+
+function renderTrafficPacketDetail(item) {
+  const titleEl = document.getElementById("trafficPacketDetailTitle");
+  const metaEl = document.getElementById("trafficPacketDetailMeta");
+  const bodyEl = document.getElementById("trafficPacketDetailBody");
+  if (!metaEl || !bodyEl) return;
+  if (!item) {
+    if (titleEl) titleEl.textContent = "未选择数据包";
+    metaEl.innerHTML = renderTableHTML(["字段", "值"], [["状态", "请选择上方数据包"]]);
+    bodyEl.textContent = "请选择上方数据包查看详情";
+    return;
+  }
+
+  const decodeMode = String(state.trafficDecodeMode || "auto").toLowerCase();
+  const modeText = decodeMode === "ascii" ? "ASCII" : decodeMode === "hex" ? "HEX" : decodeMode === "http" ? "HTTP" : "自动";
+  if (titleEl) {
+    titleEl.textContent = `数据包 ${shorten(String(item.id || "-"), 24)} | 解码模式 ${modeText}`;
+  }
+  const metaRows = [
+    ["时间", formatTimeValue(item.timestamp)],
+    ["进程", `${item.process_name || "-"} (PID ${item.pid || "-"})`],
+    ["方向", item.direction || "-"],
+    ["协议", `${item.protocol || "-"} / ${item.app_protocol || "-"}`],
+    ["源地址", `${item.src_ip || "-"}:${item.src_port || 0}`],
+    ["目的地址", `${item.dst_ip || "-"}:${item.dst_port || 0}`],
+    ["长度", `${num(item.length || 0)} bytes`],
+    ["信息", item.info || "-"],
+  ];
+  metaEl.innerHTML = renderTableHTML(["字段", "值"], metaRows, true);
+  bodyEl.textContent = decodeTrafficPacketBody(item, decodeMode);
+}
+
+function decodeTrafficPacketBody(item, mode) {
+  const preview = String(item?.payload_preview || "");
+  const decoded = String(item?.decoded_text || "");
+  const appProtocol = String(item?.app_protocol || "").toLowerCase();
+  const base = decoded || preview || "";
+  if (!base) return "无可解码内容";
+
+  if (mode === "http") {
+    if (appProtocol === "http" || /^([A-Z]+ \/|HTTP\/)/i.test(base) || /^HTTP\/\d/.test(base)) {
+      return base;
+    }
+    return "当前包不是 HTTP 明文流量，无法按 HTTP 解码。\n\n" + base;
+  }
+  if (mode === "ascii") {
+    return toASCIIView(base);
+  }
+  if (mode === "hex") {
+    return toHexDump(base);
+  }
+  if (item?.https || appProtocol === "https") {
+    return "HTTPS/TLS 流量，暂不支持明文解码。\n\n" + toHexDump(base);
+  }
+  return base;
+}
+
+function toASCIIView(text) {
+  const str = String(text || "");
+  if (!str) return "";
+  return str
+    .split("")
+    .map((ch) => {
+      const code = ch.charCodeAt(0);
+      if (code === 10 || code === 13 || code === 9) return ch;
+      if (code >= 32 && code <= 126) return ch;
+      return ".";
     })
-    .slice(0, 300)
-    .map((item) => [
-      formatTimeValue(item.timestamp),
-      item.process_name || "-",
-      item.pid || "-",
-      item.direction || "-",
-      `${item.protocol || "-"} / ${item.app_protocol || "-"}`,
-      `${item.src_ip || "-"}:${item.src_port || 0}`,
-      `${item.dst_ip || "-"}:${item.dst_port || 0}`,
-      bytes(item.length || 0),
-      item.info || "-",
-      `<button class="btn sm" type="button" data-traffic-packet="${escapeHTML(item.id || "")}">详情</button>`,
-    ]);
-  renderTable("trafficPacketTable", ["时间", "进程", "PID", "方向", "协议", "源地址", "目标地址", "长度", "说明", "操作"], rows, true);
+    .join("");
+}
+
+function toHexDump(text) {
+  const encoder = new TextEncoder();
+  const bytesBuf = encoder.encode(String(text || ""));
+  if (!bytesBuf.length) return "";
+  const lines = [];
+  for (let i = 0; i < bytesBuf.length; i += 16) {
+    const chunk = bytesBuf.slice(i, i + 16);
+    const hexPart = Array.from(chunk)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join(" ");
+    const asciiPart = Array.from(chunk)
+      .map((b) => (b >= 32 && b <= 126 ? String.fromCharCode(b) : "."))
+      .join("");
+    lines.push(`${i.toString(16).padStart(4, "0")}  ${hexPart.padEnd(16 * 3 - 1, " ")}  ${asciiPart}`);
+  }
+  return lines.join("\n");
 }
 
 function renderTrafficHTTPTable() {
@@ -5259,38 +5950,43 @@ function renderTrafficHTTPTable() {
   renderTable("trafficHTTPTable", ["时间", "进程", "PID", "请求/状态", "Host", "URL", "内容类型", "操作"], rows, true);
 }
 
-async function startTrafficCapture() {
+async function startTrafficCapture(options = {}) {
+  const silent = !!options.silent;
+  const auto = !!options.auto;
   try {
     const select = document.getElementById("trafficInterface");
     const ordered = orderTrafficInterfaces(Array.isArray(state.trafficInterfaces) ? state.trafficInterfaces : []);
     let iface = String(select?.value || "").trim();
     if (!iface) iface = ordered[0]?.name || "";
     if (!iface) {
-      showAppToast("未发现可用抓包网卡", "error");
+      if (!silent) showAppToast("未发现可用抓包网卡", "error");
       return;
     }
+    const filter = resolveTrafficCaptureFilter();
 
-    let result = await requestStartTrafficCapture(iface);
+    let result = await requestStartTrafficCapture(iface, filter);
     if (!result.ok) {
       const fallback = ordered.find((item) => item.name && item.name !== iface && item.up)?.name || "";
       if (fallback) {
-        result = await requestStartTrafficCapture(fallback);
+        result = await requestStartTrafficCapture(fallback, filter);
         if (result.ok && select) {
           select.value = fallback;
-          showAppToast(`所选网卡不可用，已切换到 ${fallback}`, "warning");
+          if (!silent) showAppToast(`所选网卡不可用，已切换到 ${fallback}`, "warning");
         }
       }
     }
     if (!result.ok) {
-      showAppToast(result.data?.error || "启动抓包失败", "error");
+      if (!silent) showAppToast(result.data?.error || "启动抓包失败", "error");
       return;
     }
     await loadTrafficData(true);
     startTrafficPolling();
-    showAppToast("流量抓包已启动", "success");
+    if (!silent) {
+      showAppToast(`流量抓包已启动${auto ? "（自动）" : ""}`, "success");
+    }
   } catch (err) {
     console.error("start traffic capture failed", err);
-    showAppToast("启动抓包失败", "error");
+    if (!silent) showAppToast("启动抓包失败", "error");
   }
 }
 
@@ -5310,11 +6006,19 @@ async function stopTrafficCapture() {
   }
 }
 
-async function requestStartTrafficCapture(iface) {
+function resolveTrafficCaptureFilter() {
+  const builtin = String(document.getElementById("trafficBuiltinFilter")?.value || "").trim();
+  const custom = String(document.getElementById("trafficCustomFilter")?.value || "").trim();
+  if (custom) return custom;
+  if (builtin) return builtin;
+  return "tcp or udp";
+}
+
+async function requestStartTrafficCapture(iface, filter) {
   const res = await fetch("/api/traffic/capture/start", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ interface: iface }),
+    body: JSON.stringify({ interface: iface, filter }),
   });
   const data = await res.json();
   return { ok: res.ok, data };
@@ -5383,37 +6087,56 @@ function hasTrafficUsableAddress(addrs, loopback) {
 }
 
 function handleTrafficPacketClick(event) {
-  const btn = event.target.closest("[data-traffic-packet]");
+  const row = event.target.closest("[data-traffic-packet-id]");
+  if (!row) return;
+  const id = String(row.getAttribute("data-traffic-packet-id") || "").trim();
+  if (!id) return;
+  state.trafficSelectedPacketID = id;
+  hideTrafficContextMenu();
+  renderTrafficPacketTable();
+}
+
+function handleTrafficPacketContextMenu(event) {
+  const row = event.target.closest("[data-traffic-packet-id]");
+  if (!row) return;
+  const id = String(row.getAttribute("data-traffic-packet-id") || "").trim();
+  if (!id) return;
+  event.preventDefault();
+  state.trafficContextPacketID = id;
+  state.trafficSelectedPacketID = id;
+  renderTrafficPacketTable();
+  showTrafficContextMenu(event.clientX, event.clientY);
+}
+
+function showTrafficContextMenu(clientX, clientY) {
+  const menu = document.getElementById("trafficPacketContextMenu");
+  if (!menu) return;
+  menu.classList.remove("hidden");
+  const menuW = Number(menu.offsetWidth || 180);
+  const menuH = Number(menu.offsetHeight || 140);
+  const vw = Number(window.innerWidth || 1280);
+  const vh = Number(window.innerHeight || 720);
+  const x = Math.max(8, Math.min(Number(clientX || 0), vw - menuW - 8));
+  const y = Math.max(8, Math.min(Number(clientY || 0), vh - menuH - 8));
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+}
+
+function hideTrafficContextMenu() {
+  const menu = document.getElementById("trafficPacketContextMenu");
+  if (!menu) return;
+  menu.classList.add("hidden");
+}
+
+function handleTrafficDecodeMenuClick(event) {
+  const btn = event.target.closest("[data-decode-mode]");
   if (!btn) return;
-  const id = String(btn.dataset.trafficPacket || "").trim();
-  const item = (state.trafficSnapshot?.packets || []).find((row) => String(row.id || "") === id);
-  if (!item) return;
-  if (item.https || String(item.app_protocol || "").toLowerCase() === "https") {
-    showAppToast("HTTPS/TLS 明文解码暂不支持", "warning");
-    return;
-  }
-  const html = `
-    <section class="traffic-packet-detail">
-      <div class="system-detail-grid">
-        <section class="system-detail-block">
-          <h4>数据包元信息</h4>
-          ${renderTableHTML(["字段", "值"], [
-            ["时间", formatTimeValue(item.timestamp)],
-            ["进程", item.process_name || "-"],
-            ["PID", item.pid || "-"],
-            ["方向", item.direction || "-"],
-            ["协议", `${item.protocol || "-"} / ${item.app_protocol || "-"}`],
-            ["源地址", `${item.src_ip || "-"}:${item.src_port || 0}`],
-            ["目标地址", `${item.dst_ip || "-"}:${item.dst_port || 0}`],
-            ["长度", bytes(item.length || 0)],
-            ["说明", item.info || "-"],
-          ], true)}
-        </section>
-      </div>
-      <pre class="log-view compact">${escapeHTML(item.decoded_text || item.payload_preview || "无明文内容")}</pre>
-    </section>
-  `;
-  openModal("数据包详情", html);
+  const mode = String(btn.dataset.decodeMode || "auto").trim().toLowerCase();
+  state.trafficDecodeMode = mode || "auto";
+  const id = String(state.trafficContextPacketID || state.trafficSelectedPacketID || "").trim();
+  if (id) state.trafficSelectedPacketID = id;
+  hideTrafficContextMenu();
+  renderTrafficPacketTable();
 }
 
 function handleTrafficHTTPClick(event) {

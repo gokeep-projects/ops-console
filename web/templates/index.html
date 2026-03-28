@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{{ .Title }}</title>
   <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v=20260327-icon1" />
-  <link rel="stylesheet" href="/static/app.css?v=20260327-70" />
+  <link rel="stylesheet" href="/static/app.css?v=20260328-78" />
 </head>
 <body class="booting">
   <div id="bootOverlay" class="boot-overlay">
@@ -152,17 +152,16 @@
         </span>
         <span class="menu-label">Docker管理</span>
       </button>
-      <button class="menu" type="button" data-section="cicd" title="CI/CD" aria-label="CI/CD">
+      <button class="menu" type="button" data-section="remote-control" title="远程控制" aria-label="远程控制">
         <span class="menu-icon" aria-hidden="true">
           <svg viewBox="0 0 16 16" fill="none">
-            <path d="M2.5 4.5h11" />
-            <path d="M4.5 8h7" />
-            <path d="M6.5 11.5h3" />
-            <path d="m11.2 4.5 2.3 2.3-2.3 2.3" />
-            <path d="m4.8 11.5-2.3-2.3 2.3-2.3" />
+            <rect x="2.5" y="3.2" width="11" height="7.8" rx="1.2" />
+            <path d="M5.5 12.8h5" />
+            <path d="m6.2 6.3-1.6 1.6 1.6 1.6" />
+            <path d="m9.8 6.3 1.6 1.6-1.6 1.6" />
           </svg>
         </span>
-        <span class="menu-label">CI/CD</span>
+        <span class="menu-label">远程控制</span>
       </button>
       <button class="menu" type="button" data-section="system" title="系统管理" aria-label="系统管理">
         <span class="menu-icon" aria-hidden="true">
@@ -352,13 +351,12 @@
 
       <section id="logs" class="panel">
         <div class="panel-head panel-head-right">
-          <div class="ops">
-            <button id="logAddCardBtn" class="btn sm">添加日志卡片</button>
-            <input id="logSearchApp" class="input sm" placeholder="搜索应用" />
+          <div class="ops log-source-ops">
+            <button id="logAddCardBtn" class="btn sm">添加日志源</button>
+            <select id="logSourceSelect" class="input"></select>
+            <button id="logDeleteCardBtn" class="btn sm danger" type="button">删除当前</button>
           </div>
         </div>
-
-        <div id="appCards" class="app-cards"></div>
 
         <div class="card">
           <div class="row">
@@ -376,7 +374,7 @@
             <button id="logErrorBtn" class="btn">仅错误</button>
             <button id="logExportBtn" class="btn">导出</button>
           </div>
-          <p id="logCurrentApp" class="hint">当前应用：</p>
+          <p id="logCurrentApp" class="hint">当前日志源：</p>
           <div id="logFileSelector" class="selector"></div>
           <div id="logStats" class="log-stats-grid"></div>
           <div id="logResult" class="log-view"></div>
@@ -426,9 +424,18 @@
       <section id="traffic-capture" class="panel traffic-panel">
         <article class="card traffic-hero-card">
           <div class="card-head">
-            <h3>数据包抓包 / HTTP 明文</h3>
-            <div class="ops">
-              <select id="trafficInterface" class="input sm"></select>
+            <h3>数据包抓包（Wireshark 风格）</h3>
+            <div class="ops traffic-capture-ops">
+              <select id="trafficInterface" class="input"></select>
+              <select id="trafficBuiltinFilter" class="input sm">
+                <option value="ip or ip6 or arp">全部流量</option>
+                <option value="tcp">仅 TCP</option>
+                <option value="udp">仅 UDP</option>
+                <option value="tcp port 80 or tcp port 8080 or tcp port 8000 or tcp port 8888">HTTP 常见端口</option>
+                <option value="tcp port 443">HTTPS/TLS</option>
+                <option value="udp port 53 or tcp port 53">DNS</option>
+              </select>
+              <input id="trafficCustomFilter" class="input" placeholder="自定义抓包过滤（BPF），例如 tcp and port 443" />
               <button id="trafficStartBtn" class="btn sm" type="button">开始抓包</button>
               <button id="trafficStopBtn" class="btn sm danger" type="button">停止抓包</button>
               <button id="trafficCaptureRefreshBtn" class="btn sm" type="button">刷新</button>
@@ -453,28 +460,51 @@
               <strong data-traffic-kpi="interface">-</strong>
             </div>
           </div>
-          <p class="hint">网卡列表会优先展示真实物理网卡，回环网卡和虚拟网卡会自动排到后面。</p>
+          <p class="hint">默认展示数据包列表；支持内置过滤和自定义过滤。右键数据包可切换解码方式。</p>
         </article>
 
-        <div class="grid cards-2">
-          <article class="card">
-            <div class="card-head">
-              <h3>数据包列表</h3>
-              <div class="ops">
-                <input id="trafficPacketSearch" class="input sm" placeholder="搜索协议 / 进程 / 端口 / 内容" />
-              </div>
+        <article class="card traffic-filter-card">
+          <div class="row">
+            <select id="trafficDisplayPreset" class="input sm">
+              <option value="all">显示全部</option>
+              <option value="tcp">显示 TCP</option>
+              <option value="udp">显示 UDP</option>
+              <option value="http">显示 HTTP</option>
+              <option value="https">显示 HTTPS/TLS</option>
+              <option value="dns">显示 DNS</option>
+            </select>
+            <input id="trafficDisplayFilter" class="input" placeholder="自定义显示过滤：proto:tcp src:10.0.0.8 dst:1.1.1.1 port:443 len>200 contains:login" />
+            <button id="trafficApplyFilterBtn" class="btn sm" type="button">应用过滤</button>
+            <button id="trafficClearFilterBtn" class="btn sm" type="button">清空过滤</button>
+          </div>
+        </article>
+
+        <article class="card traffic-packet-card">
+          <div class="card-head">
+            <h3>数据包列表</h3>
+            <div class="ops">
+              <span id="trafficPacketHint" class="hint">右键任意行可切换解码</span>
             </div>
-            <div id="trafficPacketTable" class="table"></div>
-          </article>
-          <article class="card">
-            <div class="card-head">
-              <h3>HTTP 明文解码</h3>
-              <div class="ops">
-                <span class="hint">仅支持 HTTP 明文，HTTPS 点击时会提示暂不支持</span>
-              </div>
+          </div>
+          <div id="trafficPacketTable" class="table traffic-packet-table"></div>
+        </article>
+
+        <article class="card traffic-detail-card">
+          <div class="card-head">
+            <h3>数据包详情</h3>
+            <div class="ops">
+              <span id="trafficPacketDetailTitle" class="hint">未选择数据包</span>
             </div>
-            <div id="trafficHTTPTable" class="table"></div>
-          </article>
+          </div>
+          <div id="trafficPacketDetailMeta" class="table"></div>
+          <pre id="trafficPacketDetailBody" class="log-view compact">请选择上方数据包查看详情</pre>
+        </article>
+
+        <div id="trafficPacketContextMenu" class="traffic-context-menu hidden">
+          <button type="button" data-decode-mode="auto">自动解码</button>
+          <button type="button" data-decode-mode="http">按 HTTP 尝试解码</button>
+          <button type="button" data-decode-mode="ascii">按 ASCII 文本</button>
+          <button type="button" data-decode-mode="hex">按 HEX 视图</button>
         </div>
       </section>
 
@@ -727,11 +757,9 @@
             <button id="dockerTabImages" class="btn sm" type="button">镜像</button>
           </div>
           <div id="dockerBatchActions" class="docker-batch-actions">
-            <button id="dockerBatchStartBtn" class="btn sm" type="button">批量启动</button>
-            <button id="dockerBatchStopBtn" class="btn sm danger" type="button">批量停止</button>
-            <button id="dockerBatchRestartBtn" class="btn sm" type="button">批量重启</button>
-            <button id="dockerBatchRemoveBtn" class="btn sm danger" type="button">批量删除容器</button>
-            <button id="dockerBatchRemoveImagesBtn" class="btn sm danger" type="button">批量删除镜像</button>
+            <select id="dockerBatchActionType" class="input sm" aria-label="批量操作类型"></select>
+            <button id="dockerBatchApplyBtn" class="btn sm" type="button">执行批量操作</button>
+            <span class="hint">先勾选要操作的行，再执行</span>
           </div>
           <div class="docker-pagination">
             <div class="docker-pagination-left">
@@ -755,34 +783,43 @@
         </article>
       </section>
 
-      <section id="cicd" class="panel cicd-panel">
-        <article class="card cicd-hero-card">
+      <section id="remote-control" class="panel remote-panel">
+        <article class="card remote-card">
           <div class="card-head">
-            <h3>CI/CD 流水线部署</h3>
-            <div class="ops">
-              <button id="cicdAddPipelineBtn" class="btn sm" type="button">新建流水线</button>
-              <button id="cicdRefreshBtn" class="btn sm" type="button">刷新状态</button>
+            <h3>远程桌面控制</h3>
+            <div class="ops remote-ops">
+              <select id="remoteFps" class="input sm">
+                <option value="5">5 FPS</option>
+                <option value="8" selected>8 FPS</option>
+                <option value="12">12 FPS</option>
+                <option value="15">15 FPS</option>
+              </select>
+              <select id="remoteQuality" class="input sm">
+                <option value="45">清晰度 45%</option>
+                <option value="60" selected>清晰度 60%</option>
+                <option value="75">清晰度 75%</option>
+                <option value="85">清晰度 85%</option>
+              </select>
+              <select id="remoteScale" class="input sm">
+                <option value="0.5">分辨率 50%</option>
+                <option value="0.75" selected>分辨率 75%</option>
+                <option value="1">分辨率 100%</option>
+              </select>
+              <button id="remoteConnectBtn" class="btn sm" type="button">连接桌面</button>
+              <button id="remoteDisconnectBtn" class="btn sm danger" type="button" disabled>断开</button>
+              <button id="remoteFullscreenBtn" class="btn sm" type="button">全屏</button>
             </div>
           </div>
-          <div id="cicdPipelineCards" class="cicd-pipeline-grid"></div>
+          <div class="remote-status-row">
+            <span id="remoteStatusBadge" class="badge unknown">未连接</span>
+            <span id="remoteStatusText" class="hint">等待连接</span>
+            <span class="hint">鼠标点击/拖动/滚轮和键盘按键会直接控制服务器桌面。</span>
+          </div>
+          <div id="remoteDesktopWrap" class="remote-desktop-wrap">
+            <canvas id="remoteDesktopCanvas" class="remote-desktop-canvas" width="1280" height="720" tabindex="0"></canvas>
+            <div id="remoteDesktopOverlay" class="remote-desktop-overlay">点击“连接桌面”开始远程控制</div>
+          </div>
         </article>
-        <div class="grid cards-2">
-          <article class="card">
-            <div class="card-head">
-              <h3>流水线运行记录</h3>
-            </div>
-            <div id="cicdRunTable" class="table"></div>
-          </article>
-          <article class="card">
-            <div class="card-head">
-              <h3>运行日志</h3>
-              <div class="ops">
-                <button id="cicdStopRunBtn" class="btn sm danger" type="button">停止当前运行</button>
-              </div>
-            </div>
-            <pre id="cicdRunOutput" class="log-view compact">请选择流水线运行记录</pre>
-          </article>
-        </div>
       </section>
 
       <section id="system" class="panel system-panel">
@@ -794,7 +831,8 @@
                 <button id="systemSaveBtn" class="btn sm" type="button">保存配置</button>
               </div>
             </div>
-            <div class="system-form-grid">
+            <div class="system-simple-note">只保留常用核心配置，其他参数收纳到高级设置。</div>
+            <div class="system-form-grid system-core-grid">
               <label class="field">
                 <span>系统标题</span>
                 <input id="systemSiteTitle" class="input" placeholder="OPS 运维控制台" />
@@ -811,43 +849,48 @@
                 <span>监听地址</span>
                 <input id="systemListen" class="input" placeholder="0.0.0.0:18082" />
               </label>
-              <label class="field">
-                <span>默认Shell</span>
-                <input id="systemDefaultShell" class="input" placeholder="sh / powershell / bash" />
-              </label>
-              <label class="field">
-                <span>默认工作目录</span>
-                <input id="systemDefaultWorkDir" class="input" placeholder="." />
-              </label>
-              <label class="field">
-                <span>监控刷新秒数</span>
-                <input id="systemRefreshSeconds" class="input" placeholder="5" />
-              </label>
-              <label class="field">
-                <span>运行日志路径</span>
-                <input id="systemRuntimeLogPath" class="input" placeholder="logs/ops-console/runtime.log" />
-              </label>
-              <label class="field">
-                <span>运行日志缓存条数</span>
-                <input id="systemRuntimeLogMaxEntries" class="input" placeholder="3000" />
-              </label>
-              <label class="field">
-                <span>并发任务数</span>
-                <input id="systemMaxConcurrentTasks" class="input" placeholder="4" />
-              </label>
-              <label class="field">
-                <span>清理进度刷新(ms)</span>
-                <input id="systemCleanupProgressInterval" class="input" placeholder="300" />
-              </label>
-              <label class="field">
-                <span>Docker 默认分页</span>
-                <input id="systemDockerPageSize" class="input" placeholder="20" />
-              </label>
             </div>
-            <div class="system-menu-visibility">
-              <h4>菜单显示控制</h4>
-              <div id="systemMenuVisibility" class="selector"></div>
-            </div>
+            <details class="system-advanced">
+              <summary>高级设置（非必要可忽略）</summary>
+              <div class="system-form-grid">
+                <label class="field">
+                  <span>默认Shell</span>
+                  <input id="systemDefaultShell" class="input" placeholder="sh / powershell / bash" />
+                </label>
+                <label class="field">
+                  <span>默认工作目录</span>
+                  <input id="systemDefaultWorkDir" class="input" placeholder="." />
+                </label>
+                <label class="field">
+                  <span>监控刷新秒数</span>
+                  <input id="systemRefreshSeconds" class="input" placeholder="5" />
+                </label>
+                <label class="field">
+                  <span>运行日志路径</span>
+                  <input id="systemRuntimeLogPath" class="input" placeholder="logs/ops-console/runtime.log" />
+                </label>
+                <label class="field">
+                  <span>运行日志缓存条数</span>
+                  <input id="systemRuntimeLogMaxEntries" class="input" placeholder="3000" />
+                </label>
+                <label class="field">
+                  <span>并发任务数</span>
+                  <input id="systemMaxConcurrentTasks" class="input" placeholder="4" />
+                </label>
+                <label class="field">
+                  <span>清理进度刷新(ms)</span>
+                  <input id="systemCleanupProgressInterval" class="input" placeholder="300" />
+                </label>
+                <label class="field">
+                  <span>Docker 默认分页</span>
+                  <input id="systemDockerPageSize" class="input" placeholder="20" />
+                </label>
+              </div>
+              <div class="system-menu-visibility">
+                <h4>菜单显示控制</h4>
+                <div id="systemMenuVisibility" class="selector"></div>
+              </div>
+            </details>
           </article>
           <article class="card">
             <div class="card-head">
@@ -882,6 +925,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=20260327-70"></script>
+  <script src="/static/app.js?v=20260328-78"></script>
 </body>
 </html>

@@ -1,3 +1,5 @@
+//go:build cgo
+
 package traffic
 
 import (
@@ -23,9 +25,10 @@ import (
 )
 
 const (
-	defaultPacketLimit  = 1200
-	defaultMessageLimit = 300
-	maxHTTPBodyBytes    = 64 << 10
+	defaultPacketLimit   = 1200
+	defaultMessageLimit  = 300
+	maxHTTPBodyBytes     = 64 << 10
+	defaultCaptureFilter = "tcp or udp"
 )
 
 type Manager struct {
@@ -50,6 +53,7 @@ type CaptureStatus struct {
 	InterfacesLoaded  bool      `json:"interfaces_loaded"`
 	Active            bool      `json:"active"`
 	InterfaceName     string    `json:"interface_name"`
+	CaptureFilter     string    `json:"capture_filter"`
 	StartedAt         time.Time `json:"started_at"`
 	Error             string    `json:"error"`
 	PacketCount       int       `json:"packet_count"`
@@ -129,23 +133,24 @@ type Snapshot struct {
 type captureSession struct {
 	mu sync.RWMutex
 
-	handle       *pcap.Handle
-	iface        InterfaceInfo
-	startedAt    time.Time
-	lastError    string
-	localIPs     map[string]struct{}
-	connMap      map[string]connMeta
-	flowStats    map[string]*flowStat
-	packets      []PacketEntry
-	httpMessages []HTTPMessage
-	permissionOK bool
-	stopCtx      context.Context
-	stopFn       context.CancelFunc
-	wg           sync.WaitGroup
-	packetLimit  int
-	messageLimit int
-	assembler    *tcpassembly.Assembler
-	streamPool   *tcpassembly.StreamPool
+	handle        *pcap.Handle
+	iface         InterfaceInfo
+	startedAt     time.Time
+	lastError     string
+	localIPs      map[string]struct{}
+	connMap       map[string]connMeta
+	flowStats     map[string]*flowStat
+	packets       []PacketEntry
+	httpMessages  []HTTPMessage
+	permissionOK  bool
+	stopCtx       context.Context
+	stopFn        context.CancelFunc
+	wg            sync.WaitGroup
+	packetLimit   int
+	messageLimit  int
+	captureFilter string
+	assembler     *tcpassembly.Assembler
+	streamPool    *tcpassembly.StreamPool
 }
 
 type connMeta struct {
@@ -203,7 +208,7 @@ func (m *Manager) Interfaces() []InterfaceInfo {
 	return list
 }
 
-func (m *Manager) StartCapture(interfaceName string) error {
+func (m *Manager) StartCapture(interfaceName, captureFilter string) error {
 	m.StopCapture()
 
 	iface, err := pickInterface(interfaceName)
@@ -211,28 +216,34 @@ func (m *Manager) StartCapture(interfaceName string) error {
 		return err
 	}
 
+	captureFilter = strings.TrimSpace(captureFilter)
+	if captureFilter == "" {
+		captureFilter = defaultCaptureFilter
+	}
+
 	handle, err := pcap.OpenLive(iface.Name, 65535, true, pcap.BlockForever)
 	if err != nil {
 		return fmt.Errorf("open capture interface failed: %w", err)
 	}
-	if err := handle.SetBPFFilter("tcp or udp"); err != nil {
+	if err := handle.SetBPFFilter(captureFilter); err != nil {
 		handle.Close()
 		return fmt.Errorf("apply capture filter failed: %w", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	session := &captureSession{
-		handle:       handle,
-		iface:        iface,
-		startedAt:    time.Now(),
-		localIPs:     collectLocalIPSet(),
-		connMap:      map[string]connMeta{},
-		flowStats:    map[string]*flowStat{},
-		packetLimit:  defaultPacketLimit,
-		messageLimit: defaultMessageLimit,
-		permissionOK: true,
-		stopCtx:      ctx,
-		stopFn:       cancel,
+		handle:        handle,
+		iface:         iface,
+		startedAt:     time.Now(),
+		localIPs:      collectLocalIPSet(),
+		connMap:       map[string]connMeta{},
+		flowStats:     map[string]*flowStat{},
+		packetLimit:   defaultPacketLimit,
+		messageLimit:  defaultMessageLimit,
+		permissionOK:  true,
+		captureFilter: captureFilter,
+		stopCtx:       ctx,
+		stopFn:        cancel,
 	}
 	factory := &httpStreamFactory{session: session}
 	session.streamPool = tcpassembly.NewStreamPool(factory)
@@ -268,6 +279,7 @@ func (m *Manager) Snapshot(limitPackets, limitMessages int) Snapshot {
 	status := CaptureStatus{
 		Supported:         true,
 		InterfacesLoaded:  len(interfaces) > 0,
+		CaptureFilter:     defaultCaptureFilter,
 		Connections:       len(connections),
 		LocalAddresses:    sortedKeys(m.hostIPs),
 		PermissionGranted: true,
@@ -362,6 +374,7 @@ func (s *captureSession) status() CaptureStatus {
 		InterfacesLoaded:  true,
 		Active:            true,
 		InterfaceName:     s.iface.Name,
+		CaptureFilter:     s.captureFilter,
 		StartedAt:         s.startedAt,
 		Error:             s.lastError,
 		PacketCount:       len(s.packets),

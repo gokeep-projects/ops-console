@@ -592,7 +592,7 @@ func defaultMenuVisibility() map[string]bool {
 		"backup":          true,
 		"cleanup":         true,
 		"docker":          true,
-		"cicd":            true,
+		"remote-control":  true,
 		"system":          true,
 	}
 }
