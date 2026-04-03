@@ -111,6 +111,9 @@ type Application struct {
 	Name         string   `yaml:"name" json:"name"`
 	Type         string   `yaml:"type" json:"type"`
 	Enabled      bool     `yaml:"enabled" json:"enabled"`
+	StartCommand string   `yaml:"start_command" json:"start_command"`
+	Shell        string   `yaml:"shell" json:"shell"`
+	WorkDir      string   `yaml:"work_dir" json:"work_dir"`
 	ProcessNames []string `yaml:"process_names" json:"process_names"`
 	Ports        []int    `yaml:"ports" json:"ports"`
 	HealthURL    string   `yaml:"health_url" json:"health_url"`
@@ -586,7 +589,7 @@ func defaultMenuVisibility() map[string]bool {
 	return map[string]bool{
 		"monitor":         true,
 		"logs":            true,
-		"traffic":         true,
+		"app-manager":     true,
 		"traffic-capture": true,
 		"repair":          true,
 		"backup":          true,

@@ -196,6 +196,12 @@ func (s *Server) routes() *chi.Mux {
 		pr.Get("/ws/monitor", s.handleMonitorWS)
 		pr.Get("/api/processes/{pid}/detail", s.handleProcessDetail)
 		pr.Post("/api/processes/{pid}/kill", s.handleProcessKill)
+		pr.Get("/api/apps", s.handleAppsList)
+		pr.Post("/api/apps", s.handleAppsCreate)
+		pr.Put("/api/apps/{name}", s.handleAppsUpdate)
+		pr.Delete("/api/apps/{name}", s.handleAppsDelete)
+		pr.Get("/api/apps/{name}/detail", s.handleAppsDetail)
+		pr.Post("/api/apps/{name}/start", s.handleAppsStart)
 
 		pr.Get("/api/logs/apps", s.handleLogApps)
 		pr.Post("/api/logs/apps", s.handleLogAppCreate)

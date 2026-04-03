@@ -26,6 +26,8 @@
   trafficSelectedPacketID: "",
   trafficContextPacketID: "",
   trafficDecodeMode: "auto",
+  appManagerItems: [],
+  appManagerPollTimer: null,
   apps: [],
   logRules: [],
   currentApp: null,
@@ -74,7 +76,7 @@
 };
 
 const bootState = {
-  total: 10,
+  total: 11,
   done: 0,
 };
 
@@ -175,6 +177,7 @@ document.addEventListener("DOMContentLoaded", () => {
     bindMonitorActions();
     bindLogActions();
     bindTrafficActions();
+    bindAppManagerActions();
     bindRepairActions();
     bindBackupActions();
     bindCleanupActions();
@@ -187,6 +190,7 @@ document.addEventListener("DOMContentLoaded", () => {
       stopDockerLogStream();
       stopCleanupScanPolling();
       stopTrafficPolling();
+      stopAppManagerPolling();
       disconnectRemoteTerminal(false);
     });
     initializeApp();
@@ -397,6 +401,7 @@ async function bootstrap() {
     await runOptionalBootStep("加载趋势历史", loadTrendHistory, { retries: 1, timeout: 20000 });
     await runOptionalBootStep("加载应用和日志规则", loadApps, { retries: 1, timeout: 16000 });
     await runOptionalBootStep("加载流量分析基础信息", loadTrafficData, { retries: 1, timeout: 16000 });
+    await runOptionalBootStep("加载应用管理列表", () => loadManagedApps(true), { retries: 1, timeout: 16000 });
     await runOptionalBootStep("加载脚本定义", loadScripts, { retries: 1, timeout: 16000 });
     await runOptionalBootStep("加载脚本执行历史", loadScriptRuns, { retries: 1, timeout: 16000 });
     await runOptionalBootStep("加载备份记录", loadBackups, { retries: 1, timeout: 16000 });
@@ -533,7 +538,7 @@ function switchSection(target) {
       showAppToast("初始化远程控制失败", "error");
     });
   }
-  if (target === "traffic" || target === "traffic-capture") {
+  if (target === "monitor" || target === "traffic-capture" || target === "app-manager") {
     loadTrafficData(true).catch((err) => {
       console.error("load traffic data failed", err);
       showAppToast("加载流量分析失败", "error");
@@ -541,6 +546,15 @@ function switchSection(target) {
     startTrafficPolling();
   } else {
     stopTrafficPolling();
+  }
+  if (target === "app-manager") {
+    loadManagedApps(true).catch((err) => {
+      console.error("load app manager failed", err);
+      showAppToast("加载应用管理列表失败", "error");
+    });
+    startAppManagerPolling();
+  } else {
+    stopAppManagerPolling();
   }
   if (target === "system") {
     applySystemConfigForm().catch((err) => {
@@ -612,6 +626,15 @@ function bindMonitorActions() {
 
   document.getElementById("processSearch").addEventListener("input", renderProcessTable);
   document.getElementById("portSearch").addEventListener("input", renderPortTable);
+  document.getElementById("monitorTrafficSearch")?.addEventListener("input", renderMonitorTrafficTable);
+  document.getElementById("monitorTrafficRefreshBtn")?.addEventListener("click", () => loadTrafficData(true));
+  document.getElementById("monitorTrafficList")?.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-monitor-traffic-key]");
+    if (!btn) return;
+    const key = String(btn.dataset.monitorTrafficKey || "").trim();
+    if (!key) return;
+    openMonitorTrafficDetail(key);
+  });
 
   document.querySelectorAll(".trend-open-target").forEach((target) => {
     const openByTarget = () => {
@@ -892,6 +915,36 @@ function bindTrafficActions() {
   document.getElementById("trafficPacketContextMenu")?.addEventListener("click", handleTrafficDecodeMenuClick);
   document.addEventListener("click", hideTrafficContextMenu);
   document.getElementById("trafficHTTPTable")?.addEventListener("click", handleTrafficHTTPClick);
+}
+
+function bindAppManagerActions() {
+  document.getElementById("appManagerRefreshBtn")?.addEventListener("click", () => loadManagedApps(true));
+  document.getElementById("appManagerAddBtn")?.addEventListener("click", openCreateAppModal);
+  document.getElementById("appManagerTable")?.addEventListener("click", async (event) => {
+    const startBtn = event.target.closest("[data-app-start]");
+    if (startBtn) {
+      const name = String(startBtn.dataset.appStart || "").trim();
+      if (name) await startManagedApp(name);
+      return;
+    }
+    const detailBtn = event.target.closest("[data-app-detail]");
+    if (detailBtn) {
+      const name = String(detailBtn.dataset.appDetail || "").trim();
+      if (name) await showManagedAppDetail(name);
+      return;
+    }
+    const editBtn = event.target.closest("[data-app-edit]");
+    if (editBtn) {
+      const name = String(editBtn.dataset.appEdit || "").trim();
+      if (name) openEditAppModal(name);
+      return;
+    }
+    const deleteBtn = event.target.closest("[data-app-delete]");
+    if (!deleteBtn) return;
+    const name = String(deleteBtn.dataset.appDelete || "").trim();
+    if (!name) return;
+    await deleteManagedApp(name);
+  });
 }
 
 function syncLogRealtimeState(activeSection = "") {
@@ -2837,24 +2890,7 @@ function renderMonitor(data) {
   renderDiskVolumeChart(data.disks || []);
 
   renderPortTable();
-
-  const protocolServices = []
-    .concat((data.snmp || []).map(mapSnmpResultToService))
-    .concat((data.nmap || []).map(mapNmapResultToService));
-
-  const services = []
-    .concat(data.applications || [])
-    .concat(data.databases || [])
-    .concat(data.middleware || [])
-    .concat(protocolServices);
-
-  const serviceRows = services.map((x) => [
-    escapeHTML(x.name || "-"),
-    escapeHTML(localizeServiceType(x.type)),
-    `<span class="badge ${statusClass(x.status)}">${escapeHTML(localizeServiceStatus(x.status))}</span>`,
-    escapeHTML(localizeServiceDetail(x.detail)),
-  ]);
-  renderTable("serviceList", ["名称", "类型", "状态", "匹配详情"], serviceRows, true);
+  renderMonitorTrafficTable();
 
   renderTrendCards();
   refreshTrendModalIfOpen();
@@ -3515,6 +3551,298 @@ async function loadApps() {
   state.apps = data.apps || [];
   state.logRules = data.rules || state.logRules;
   ensureCurrentLogCard(true);
+}
+
+function startAppManagerPolling() {
+  stopAppManagerPolling();
+  state.appManagerPollTimer = setInterval(() => {
+    const active = String(document.querySelector(".panel.visible")?.id || "").trim();
+    if (active !== "app-manager") return;
+    loadManagedApps(false, { silent: true });
+  }, 3000);
+}
+
+function stopAppManagerPolling() {
+  if (!state.appManagerPollTimer) return;
+  clearInterval(state.appManagerPollTimer);
+  state.appManagerPollTimer = null;
+}
+
+async function loadManagedApps(force = false, options = {}) {
+  const silent = !!options.silent;
+  try {
+    const res = await fetchWithTimeout("/api/apps", 15000);
+    const data = await res.json();
+    if (!res.ok) {
+      if (!silent) showAppToast(data.error || "加载应用管理列表失败", "error");
+      return state.appManagerItems;
+    }
+    state.appManagerItems = Array.isArray(data.items) ? data.items : [];
+    renderManagedApps();
+  } catch (err) {
+    console.error("load managed apps failed", err);
+    if (!silent && force) showAppToast("加载应用管理列表失败", "error");
+  }
+  return state.appManagerItems;
+}
+
+function renderManagedApps() {
+  const items = Array.isArray(state.appManagerItems) ? state.appManagerItems : [];
+  const up = items.filter((item) => String(item.status || "").toLowerCase() === "up").length;
+  const down = items.length - up;
+  setText("appManagerSummary", `共 ${num(items.length)} 个应用，运行中 ${num(up)}，未运行 ${num(down)}`);
+
+  const rows = items.map((item) => {
+    const processNames = Array.isArray(item.process_names) && item.process_names.length ? item.process_names.join(", ") : "-";
+    const startText = String(item.start_command || "").trim() ? shorten(item.start_command, 48) : "<span class=\"hint\">未配置</span>";
+    const trafficText = `${bytes(item.bytes_in || 0)} / ${bytes(item.bytes_out || 0)}`;
+    const lastStart = item.last_start_at ? `${formatTimeValue(item.last_start_at)} (${item.last_start_status || "-"})` : "-";
+    const disabled = String(item.start_command || "").trim() ? "" : "disabled";
+    return [
+      escapeHTML(item.name || "-"),
+      escapeHTML(item.type || "-"),
+      `<span class="badge ${statusClass(item.status || "down")}">${escapeHTML(item.status === "up" ? "运行中" : "未运行")}</span>`,
+      escapeHTML(processNames),
+      startText,
+      trafficText,
+      escapeHTML(lastStart),
+      `<button class="btn sm" type="button" data-app-start="${escapeHTML(item.name || "")}" ${disabled}>启动</button>
+       <button class="btn sm" type="button" data-app-detail="${escapeHTML(item.name || "")}">详情</button>
+       <button class="btn sm" type="button" data-app-edit="${escapeHTML(item.name || "")}">编辑</button>
+       <button class="btn sm danger" type="button" data-app-delete="${escapeHTML(item.name || "")}">删除</button>`,
+    ];
+  });
+
+  renderTable(
+    "appManagerTable",
+    ["应用名", "类型", "状态", "进程匹配规则", "启动命令", "入/出流量", "最近启动", "操作"],
+    rows,
+    true,
+  );
+}
+
+function openCreateAppModal() {
+  openAppEditorModal(null);
+}
+
+function openEditAppModal(name) {
+  const item = (state.appManagerItems || []).find((row) => String(row.name || "").trim() === String(name || "").trim()) || null;
+  if (!item) {
+    showAppToast("未找到应用信息，请先刷新", "warning");
+    return;
+  }
+  openAppEditorModal(item);
+}
+
+function openAppEditorModal(item) {
+  const isEdit = !!item;
+  const envText = Object.entries(item?.env || {})
+    .map(([k, v]) => `${k}=${v}`)
+    .join("\n");
+  const html = `
+    <section class="system-detail-grid">
+      <section class="system-detail-block">
+        <h4>${isEdit ? "编辑应用" : "新增应用"}</h4>
+        <div class="row">
+          <input id="appEditName" class="input" placeholder="应用名称" value="${escapeHTML(item?.name || "")}" />
+          <input id="appEditType" class="input" placeholder="类型，例如 java-service / go-service" value="${escapeHTML(item?.type || "application")}" />
+          <label class="hint"><input id="appEditEnabled" type="checkbox" ${item ? (item.enabled ? "checked" : "") : "checked"} /> 启用监控匹配</label>
+        </div>
+        <div class="row">
+          <input id="appEditStartCommand" class="input" placeholder="启动命令，例如: java -jar app.jar" value="${escapeHTML(item?.start_command || "")}" />
+        </div>
+        <div class="row">
+          <input id="appEditShell" class="input" placeholder="执行器，例如 powershell / cmd / sh" value="${escapeHTML(item?.shell || "")}" />
+          <input id="appEditWorkDir" class="input" placeholder="工作目录，可为空使用系统默认目录" value="${escapeHTML(item?.work_dir || "")}" />
+        </div>
+        <div class="row">
+          <input id="appEditProcessNames" class="input" placeholder="进程匹配（逗号分隔）" value="${escapeHTML((item?.process_names || []).join(", "))}" />
+          <input id="appEditPorts" class="input" placeholder="端口（逗号分隔）" value="${escapeHTML((item?.ports || []).join(", "))}" />
+        </div>
+        <div class="row">
+          <input id="appEditDescription" class="input" placeholder="描述（数据库）" value="${escapeHTML(item?.description || "")}" />
+          <input id="appEditOwner" class="input" placeholder="负责人（数据库）" value="${escapeHTML(item?.owner || "")}" />
+        </div>
+        <div class="row">
+          <textarea id="appEditNotes" class="input" rows="3" style="width:100%;" placeholder="备注（数据库）">${escapeHTML(item?.notes || "")}</textarea>
+        </div>
+        <div class="row">
+          <textarea id="appEditEnv" class="input" rows="4" style="width:100%;" placeholder="环境变量（每行 KEY=VALUE）">${escapeHTML(envText)}</textarea>
+        </div>
+        <div class="row">
+          <button id="appEditSaveBtn" class="btn" type="button">${isEdit ? "保存修改" : "创建应用"}</button>
+        </div>
+      </section>
+    </section>
+  `;
+  openModal(isEdit ? `编辑应用 - ${item.name}` : "新增应用", html);
+  document.getElementById("appEditSaveBtn")?.addEventListener("click", async () => {
+    const payload = buildAppEditorPayload();
+    if (!payload) return;
+    const url = isEdit ? `/api/apps/${encodeURIComponent(item.name)}` : "/api/apps";
+    const method = isEdit ? "PUT" : "POST";
+    const res = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showAppToast(data.error || `${isEdit ? "保存" : "创建"}应用失败`, "error");
+      return;
+    }
+    closeModal();
+    await Promise.all([loadManagedApps(true), loadConfig()]);
+    showAppToast(isEdit ? "应用已更新" : "应用已创建", "success");
+  });
+}
+
+function buildAppEditorPayload() {
+  const name = getInputValue("appEditName");
+  if (!name) {
+    showAppToast("请填写应用名称", "warning");
+    return null;
+  }
+  const env = {};
+  getInputValue("appEditEnv")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .forEach((line) => {
+      const idx = line.indexOf("=");
+      if (idx <= 0) return;
+      const key = line.slice(0, idx).trim();
+      if (!key) return;
+      env[key] = line.slice(idx + 1).trim();
+    });
+
+  return {
+    name,
+    type: getInputValue("appEditType"),
+    enabled: !!document.getElementById("appEditEnabled")?.checked,
+    start_command: getInputValue("appEditStartCommand"),
+    shell: getInputValue("appEditShell"),
+    work_dir: getInputValue("appEditWorkDir"),
+    process_names: getInputValue("appEditProcessNames")
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean),
+    ports: getInputValue("appEditPorts")
+      .split(",")
+      .map((x) => Number(x.trim()))
+      .filter((x) => Number.isFinite(x) && x > 0),
+    description: getInputValue("appEditDescription"),
+    owner: getInputValue("appEditOwner"),
+    notes: getInputValue("appEditNotes"),
+    env,
+  };
+}
+
+async function startManagedApp(name) {
+  const appName = String(name || "").trim();
+  if (!appName) return;
+  const res = await fetch(`/api/apps/${encodeURIComponent(appName)}/start`, { method: "POST" });
+  const data = await res.json();
+  if (!res.ok) {
+    showAppToast(data.error || "启动应用失败", "error");
+    return;
+  }
+  showAppToast(`应用已启动：${appName}${data.pid ? ` (PID ${data.pid})` : ""}`, "success");
+  await Promise.all([loadManagedApps(true), loadTrafficData(false)]);
+}
+
+async function deleteManagedApp(name) {
+  const appName = String(name || "").trim();
+  if (!appName) return;
+  if (!confirm(`确认删除应用「${appName}」？`)) return;
+  const res = await fetch(`/api/apps/${encodeURIComponent(appName)}`, { method: "DELETE" });
+  const data = await res.json();
+  if (!res.ok) {
+    showAppToast(data.error || "删除应用失败", "error");
+    return;
+  }
+  showAppToast(`已删除应用：${appName}`, "success");
+  await Promise.all([loadManagedApps(true), loadConfig()]);
+}
+
+async function showManagedAppDetail(name) {
+  const appName = String(name || "").trim();
+  if (!appName) return;
+  const res = await fetchWithTimeout(`/api/apps/${encodeURIComponent(appName)}/detail`, 20000);
+  const data = await res.json();
+  if (!res.ok) {
+    showAppToast(data.error || "加载应用详情失败", "error");
+    return;
+  }
+  const item = data.item || {};
+  const processes = Array.isArray(data.process_details) ? data.process_details : [];
+  const conns = Array.isArray(data.traffic_connections) ? data.traffic_connections : [];
+  const processRows = processes.map((proc) => [
+    proc.pid || "-",
+    proc.name || "-",
+    `${fixed(proc.cpu_percent || proc.cpu || 0)}%`,
+    `${fixed(proc.memory_percent || proc.memory || 0)}%`,
+    proc.threads || "-",
+    proc.exe_path || "-",
+  ]);
+  const connRows = conns.slice(0, 100).map((conn) => [
+    conn.pid || "-",
+    conn.protocol || "-",
+    `${conn.local_ip || "-"}:${conn.local_port || 0}`,
+    conn.remote_ip ? `${conn.remote_ip}:${conn.remote_port || 0}` : "-",
+    `${bytes(conn.bytes_in || 0)} / ${bytes(conn.bytes_out || 0)}`,
+    conn.last_seen ? formatTimeValue(conn.last_seen) : "-",
+  ]);
+  const html = `
+    <section class="system-detail-grid">
+      <section class="system-detail-block">
+        <h4>基础信息（配置文件）</h4>
+        ${renderTableHTML(
+          ["字段", "值"],
+          [
+            ["名称", item.name || "-"],
+            ["类型", item.type || "-"],
+            ["启用", item.enabled ? "是" : "否"],
+            ["启动命令", item.start_command || "-"],
+            ["执行器", item.shell || "-"],
+            ["工作目录", item.work_dir || "-"],
+            ["进程匹配", (item.process_names || []).join(", ") || "-"],
+            ["端口", (item.ports || []).join(", ") || "-"],
+            ["健康检查URL", item.health_url || "-"],
+            ["健康检查命令", item.health_cmd || "-"],
+          ],
+          true,
+        )}
+      </section>
+      <section class="system-detail-block">
+        <h4>扩展信息（数据库）</h4>
+        ${renderTableHTML(
+          ["字段", "值"],
+          [
+            ["描述", item.description || "-"],
+            ["负责人", item.owner || "-"],
+            ["备注", item.notes || "-"],
+            ["最近启动", item.last_start_at ? formatTimeValue(item.last_start_at) : "-"],
+            ["最近启动状态", item.last_start_status || "-"],
+            ["最近启动信息", item.last_start_message || "-"],
+            ["实时状态", item.status === "up" ? "运行中" : "未运行"],
+            ["匹配进程数", num(item.process_count || 0)],
+            ["实时入/出流量", `${bytes(item.bytes_in || 0)} / ${bytes(item.bytes_out || 0)}`],
+          ],
+          true,
+        )}
+      </section>
+      <section class="system-detail-block">
+        <h4>实时进程详情</h4>
+        ${renderTableHTML(["PID", "进程", "CPU", "内存", "线程", "路径"], processRows, true)}
+      </section>
+      <section class="system-detail-block">
+        <h4>实时连接流量</h4>
+        ${renderTableHTML(["PID", "协议", "本地地址", "远端地址", "入/出流量", "最后活跃"], connRows, true)}
+      </section>
+    </section>
+  `;
+  openModal(`应用详情 - ${appName}`, html);
 }
 
 function renderAppCards() {
@@ -4942,7 +5270,7 @@ function renderSystemMenuVisibility() {
   const labels = {
     monitor: "系统监控",
     logs: "日志分析",
-    traffic: "进程流量",
+    "app-manager": "应用管理",
     "traffic-capture": "数据包抓包",
     repair: "修复工具",
     backup: "数据备份",
@@ -5132,10 +5460,12 @@ function renderDirectoryPickerModal() {
         const isChecked = state.fsModalSelected.includes(path);
         const checked = isChecked ? "checked" : "";
         const children = expanded ? state.fsTreeCache[path] || [] : [];
+        const toggleClass = node.has_children ? "has-children" : "is-leaf";
+        const toggleDisabled = node.has_children ? "" : "disabled aria-disabled=\"true\"";
         return `
           <li class="fs-tree-node">
-            <div class="fs-tree-row${isChecked ? " selected" : ""}">
-              <button class="btn sm fs-tree-toggle" type="button" data-fs-expand="${encoded}">${node.has_children ? (expanded ? "−" : "+") : "·"}</button>
+            <div class="fs-tree-row${isChecked ? " selected" : ""}" data-depth="${depth}">
+              <button class="btn sm fs-tree-toggle ${toggleClass}" type="button" data-fs-expand="${encoded}" ${toggleDisabled}>${node.has_children ? (expanded ? "−" : "+") : "·"}</button>
               <label class="fs-tree-label">
                 <input type="${fsModalMulti ? "checkbox" : "radio"}" name="fs-picker" data-fs-select="${encoded}" ${checked} />
                 <span title="${escapeHTML(path)}">${escapeHTML(node.name || path)}</span>
@@ -5624,6 +5954,7 @@ async function loadTrafficData(force = false) {
   renderTrafficInterfaceOptions();
   renderTrafficStatusSummary();
   renderTrafficConnectionTable();
+  renderMonitorTrafficTable();
   renderTrafficPacketTable();
   renderTrafficHTTPTable();
   if (!state.trafficSnapshot?.status?.active && !state.trafficAutoStartTried) {
@@ -5735,6 +6066,109 @@ function renderTrafficConnectionTable() {
       item.last_seen ? formatTimeValue(item.last_seen) : "-",
     ]);
   renderTable("trafficConnectionTable", ["进程", "PID", "协议", "本地地址", "远端地址", "状态", "入/出流量", "入/出包数", "最后活跃"], rows);
+}
+
+function renderMonitorTrafficTable() {
+  const keyword = String(document.getElementById("monitorTrafficSearch")?.value || "").trim().toLowerCase();
+  const list = Array.isArray(state.trafficSnapshot?.connections) ? state.trafficSnapshot.connections : [];
+  const rows = list
+    .filter((item) => {
+      if (!keyword) return true;
+      const searchable = [
+        item.process_name,
+        item.pid,
+        item.local_ip,
+        item.local_port,
+        item.remote_ip,
+        item.remote_port,
+        item.protocol,
+        item.status,
+      ]
+        .join(" ")
+        .toLowerCase();
+      return searchable.includes(keyword);
+    })
+    .slice(0, 200)
+    .map((item) => {
+      const fallbackKey = `${item.pid || 0}:${item.local_ip || ""}:${item.local_port || 0}:${item.remote_ip || ""}:${item.remote_port || 0}`;
+      const key = encodeURIComponent(String(item.connection_key || fallbackKey));
+      return [
+        item.process_name || "-",
+        item.pid || "-",
+        item.protocol || "-",
+        `${item.local_ip || "-"}:${item.local_port || 0}`,
+        item.remote_ip ? `${item.remote_ip}:${item.remote_port || 0}` : "-",
+        item.status || "-",
+        `${bytes(item.bytes_in || 0)} / ${bytes(item.bytes_out || 0)}`,
+        `${num(item.packets_in || 0)} / ${num(item.packets_out || 0)}`,
+        item.last_seen ? formatTimeValue(item.last_seen) : "-",
+        `<button class="btn sm" type="button" data-monitor-traffic-key="${escapeHTML(key)}">详情</button>`,
+      ];
+    });
+
+  renderTable(
+    "monitorTrafficList",
+    ["进程", "PID", "协议", "本地地址", "远端地址", "状态", "入/出流量", "入/出包数", "最后活跃", "操作"],
+    rows,
+    true,
+  );
+}
+
+async function openMonitorTrafficDetail(encodedKey) {
+  const key = decodeURIComponent(String(encodedKey || "").trim());
+  if (!key) return;
+  const list = Array.isArray(state.trafficSnapshot?.connections) ? state.trafficSnapshot.connections : [];
+  const row = list.find((item) => String(item.connection_key || "") === key) || null;
+  if (!row) {
+    showAppToast("连接详情已失效，请刷新后重试", "warning");
+    return;
+  }
+
+  const trafficHTML = renderTableHTML(
+    ["字段", "值"],
+    [
+      ["进程", row.process_name || "-"],
+      ["PID", row.pid || "-"],
+      ["协议", row.protocol || "-"],
+      ["状态", row.status || "-"],
+      ["本地地址", `${row.local_ip || "-"}:${row.local_port || 0}`],
+      ["远端地址", row.remote_ip ? `${row.remote_ip}:${row.remote_port || 0}` : "-"],
+      ["连接键", row.connection_key || "-"],
+      ["入站流量", bytes(row.bytes_in || 0)],
+      ["出站流量", bytes(row.bytes_out || 0)],
+      ["入站包数", num(row.packets_in || 0)],
+      ["出站包数", num(row.packets_out || 0)],
+      ["最后活跃", row.last_seen ? formatTimeValue(row.last_seen) : "-"],
+    ],
+    true,
+  );
+
+  let processHTML = '<div class="hint">未获取到进程实时资源详情</div>';
+  if (Number(row.pid || 0) > 0) {
+    try {
+      const res = await fetchWithTimeout(`/api/processes/${encodeURIComponent(String(row.pid))}/detail`, 12000);
+      const data = await res.json();
+      if (res.ok) {
+        processHTML = renderProcessDetailHTML(data);
+      }
+    } catch (err) {
+      console.error("load process detail for monitor traffic failed", err);
+    }
+  }
+
+  const html = `
+    <section class="system-detail-grid">
+      <section class="system-detail-block">
+        <h4>流量连接详情</h4>
+        ${trafficHTML}
+      </section>
+      <section class="system-detail-block">
+        <h4>进程实时资源</h4>
+        ${processHTML}
+      </section>
+    </section>
+  `;
+  openModal(`连接详情 - ${row.process_name || "未知进程"} (${row.pid || "-"})`, html);
 }
 
 function renderTrafficPacketTable() {

@@ -5,13 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{{ .Title }}</title>
   <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v=20260327-icon1" />
-  <link rel="stylesheet" href="/static/app.css?v=20260328-78" />
+  <link rel="stylesheet" href="/static/app.css?v=20260403-85" />
 </head>
 <body class="booting">
   <div id="bootOverlay" class="boot-overlay">
     <div class="boot-card">
-      <h2>运维工具初始化中</h2>
-      <p id="bootText">准备加载...</p>
+      <h2>杩愮淮宸ュ叿鍒濆鍖栦腑</h2>
+      <p id="bootText">鍑嗗鍔犺浇...</p>
       <div class="boot-progress">
         <div id="bootBar" class="boot-bar"></div>
       </div>
@@ -21,20 +21,20 @@
 
   <div id="authOverlay" class="auth-overlay hidden">
     <div class="auth-card">
-      <h2>登录 OPS 运维平台</h2>
-      <p>请输入配置文件中的账号密码</p>
+      <h2>鐧诲綍 OPS 杩愮淮骞冲彴</h2>
+      <p>璇疯緭鍏ラ厤缃枃浠朵腑鐨勮处鍙峰瘑鐮?/p>
       <form id="authLoginForm" class="auth-form" autocomplete="off">
         <label>
-          <span>用户名</span>
-          <input id="authUsername" class="input" type="text" name="username" autocomplete="username" placeholder="请输入用户名" />
+          <span>鐢ㄦ埛鍚?/span>
+          <input id="authUsername" class="input" type="text" name="username" autocomplete="username" placeholder="璇疯緭鍏ョ敤鎴峰悕" />
         </label>
         <label>
-          <span>密码</span>
-          <input id="authPassword" class="input" type="password" name="password" autocomplete="current-password" placeholder="请输入密码" />
+          <span>瀵嗙爜</span>
+          <input id="authPassword" class="input" type="password" name="password" autocomplete="current-password" placeholder="璇疯緭鍏ュ瘑鐮? />
         </label>
-        <button class="btn" type="submit">登 录</button>
+        <button class="btn" type="submit">鐧?褰?/button>
       </form>
-      <p id="authMessage" class="auth-message info">请输入账号密码登录</p>
+      <p id="authMessage" class="auth-message info">璇疯緭鍏ヨ处鍙峰瘑鐮佺櫥褰?/p>
     </div>
   </div>
 
@@ -46,37 +46,37 @@
           id="sidebarToggleBtn"
           class="btn sm sidebar-toggle-btn"
           type="button"
-          title="收起系统菜单"
-          aria-label="收起系统菜单"
+          title="鏀惰捣绯荤粺鑿滃崟"
+          aria-label="鏀惰捣绯荤粺鑿滃崟"
           aria-expanded="true"
           data-collapsed="false"
         >
           <span class="sidebar-toggle-icon" aria-hidden="true"></span>
-          <span class="sr-only sidebar-toggle-text">收起系统菜单</span>
+          <span class="sr-only sidebar-toggle-text">鏀惰捣绯荤粺鑿滃崟</span>
         </button>
         <button
           id="sidebarExpandBtn"
           class="btn sm sidebar-expand-btn"
           type="button"
-          title="展开系统菜单"
-          aria-label="展开系统菜单"
+          title="灞曞紑绯荤粺鑿滃崟"
+          aria-label="灞曞紑绯荤粺鑿滃崟"
           aria-expanded="false"
           data-collapsed="true"
         >
           <span class="sidebar-toggle-icon" aria-hidden="true"></span>
-          <span class="sr-only sidebar-expand-text">展开</span>
+          <span class="sr-only sidebar-expand-text">灞曞紑</span>
         </button>
       </div>
-      <button class="menu active" type="button" data-section="monitor" title="系统监控" aria-label="系统监控">
+      <button class="menu active" type="button" data-section="monitor" title="绯荤粺鐩戞帶" aria-label="绯荤粺鐩戞帶">
         <span class="menu-icon" aria-hidden="true">
           <svg viewBox="0 0 16 16" fill="none">
             <path d="M3 12.5h10" />
             <path d="M4.5 10 6.8 7.7l2 1.8L12 5.8" />
           </svg>
         </span>
-        <span class="menu-label">系统监控</span>
+        <span class="menu-label">绯荤粺鐩戞帶</span>
       </button>
-      <button class="menu" type="button" data-section="logs" title="日志分析" aria-label="日志分析">
+      <button class="menu" type="button" data-section="logs" title="鏃ュ織鍒嗘瀽" aria-label="鏃ュ織鍒嗘瀽">
         <span class="menu-icon" aria-hidden="true">
           <svg viewBox="0 0 16 16" fill="none">
             <path d="M4 3.5h8a1 1 0 0 1 1 1v7.5l-2-1.4-2 1.4-2-1.4-2 1.4-2-1.4V4.5a1 1 0 0 1 1-1Z" />
@@ -84,19 +84,20 @@
             <path d="M5.5 8.25h4" />
           </svg>
         </span>
-        <span class="menu-label">日志分析</span>
+        <span class="menu-label">鏃ュ織鍒嗘瀽</span>
       </button>
-      <button class="menu" type="button" data-section="traffic" title="进程流量" aria-label="进程流量">
+            <button class="menu" type="button" data-section="app-manager" title="应用管理" aria-label="应用管理">
         <span class="menu-icon" aria-hidden="true">
           <svg viewBox="0 0 16 16" fill="none">
-            <path d="M2.5 12.5h2.2l1.4-3.1 2.1 1.9 2.4-5.3 1.4 2h1.5" />
-            <path d="M2.5 4.5h3" />
-            <path d="M10.5 4.5h3" />
+            <rect x="2.5" y="2.5" width="11" height="11" rx="1.8" />
+            <path d="M5 5.5h6" />
+            <path d="M5 8h6" />
+            <path d="M5 10.5h3.8" />
           </svg>
         </span>
-        <span class="menu-label">进程流量</span>
+        <span class="menu-label">应用管理</span>
       </button>
-      <button class="menu" type="button" data-section="traffic-capture" title="数据包抓包" aria-label="数据包抓包">
+      <button class="menu" type="button" data-section="traffic-capture" title="鏁版嵁鍖呮姄鍖? aria-label="鏁版嵁鍖呮姄鍖?>
         <span class="menu-icon" aria-hidden="true">
           <svg viewBox="0 0 16 16" fill="none">
             <rect x="2.5" y="3" width="11" height="8.5" rx="1.5" />
@@ -105,9 +106,9 @@
             <path d="M6.5 13h3" />
           </svg>
         </span>
-        <span class="menu-label">数据包抓包</span>
+        <span class="menu-label">鏁版嵁鍖呮姄鍖?/span>
       </button>
-      <button class="menu" type="button" data-section="repair" title="修复工具" aria-label="修复工具">
+      <button class="menu" type="button" data-section="repair" title="淇宸ュ叿" aria-label="淇宸ュ叿">
         <span class="menu-icon" aria-hidden="true">
           <svg viewBox="0 0 16 16" fill="none">
             <path d="m9.2 3.5 3.3 3.3" />
@@ -115,9 +116,9 @@
             <path d="m8.3 4.4 3.3 3.3" />
           </svg>
         </span>
-        <span class="menu-label">修复工具</span>
+        <span class="menu-label">淇宸ュ叿</span>
       </button>
-      <button class="menu" type="button" data-section="backup" title="数据备份" aria-label="数据备份">
+      <button class="menu" type="button" data-section="backup" title="鏁版嵁澶囦唤" aria-label="鏁版嵁澶囦唤">
         <span class="menu-icon" aria-hidden="true">
           <svg viewBox="0 0 16 16" fill="none">
             <path d="M3.5 4.5h9v7h-9z" />
@@ -126,9 +127,9 @@
             <path d="M8 8v2.5" />
           </svg>
         </span>
-        <span class="menu-label">数据备份</span>
+        <span class="menu-label">鏁版嵁澶囦唤</span>
       </button>
-      <button class="menu" type="button" data-section="cleanup" title="数据清理" aria-label="数据清理">
+      <button class="menu" type="button" data-section="cleanup" title="鏁版嵁娓呯悊" aria-label="鏁版嵁娓呯悊">
         <span class="menu-icon" aria-hidden="true">
           <svg viewBox="0 0 16 16" fill="none">
             <path d="M3.5 4h9" />
@@ -138,9 +139,9 @@
             <path d="M9.3 7v4.2" />
           </svg>
         </span>
-        <span class="menu-label">数据清理</span>
+        <span class="menu-label">鏁版嵁娓呯悊</span>
       </button>
-      <button class="menu" type="button" data-section="docker" title="Docker管理" aria-label="Docker管理">
+      <button class="menu" type="button" data-section="docker" title="Docker绠＄悊" aria-label="Docker绠＄悊">
         <span class="menu-icon" aria-hidden="true">
           <svg viewBox="0 0 16 16" fill="none">
             <rect x="2.5" y="6.5" width="3" height="3" />
@@ -150,9 +151,9 @@
             <path d="M2.2 10.5h11.6c0 1.7-1.3 3-3 3H5.2c-1.7 0-3-1.3-3-3Z" />
           </svg>
         </span>
-        <span class="menu-label">Docker管理</span>
+        <span class="menu-label">Docker绠＄悊</span>
       </button>
-      <button class="menu" type="button" data-section="remote-control" title="远程控制" aria-label="远程控制">
+      <button class="menu" type="button" data-section="remote-control" title="杩滅▼鎺у埗" aria-label="杩滅▼鎺у埗">
         <span class="menu-icon" aria-hidden="true">
           <svg viewBox="0 0 16 16" fill="none">
             <rect x="2.5" y="3.2" width="11" height="7.8" rx="1.2" />
@@ -161,9 +162,9 @@
             <path d="m9.8 6.3 1.6 1.6-1.6 1.6" />
           </svg>
         </span>
-        <span class="menu-label">远程控制</span>
+        <span class="menu-label">杩滅▼鎺у埗</span>
       </button>
-      <button class="menu" type="button" data-section="system" title="系统管理" aria-label="系统管理">
+      <button class="menu" type="button" data-section="system" title="绯荤粺绠＄悊" aria-label="绯荤粺绠＄悊">
         <span class="menu-icon" aria-hidden="true">
           <svg viewBox="0 0 16 16" fill="none">
             <circle cx="8" cy="8" r="2.2" />
@@ -177,7 +178,7 @@
             <path d="M3 3 4.4 4.4" />
           </svg>
         </span>
-        <span class="menu-label">系统管理</span>
+        <span class="menu-label">绯荤粺绠＄悊</span>
       </button>
     </aside>
 
@@ -185,11 +186,11 @@
       <section id="monitor" class="panel visible">
         <article class="card system-info-card">
           <div class="card-head">
-            <h3>系统信息</h3>
+            <h3>绯荤粺淇℃伅</h3>
             <div class="ops">
-              <button id="openSystemInfoModalBtn" class="btn sm" type="button">查看系统详情</button>
-              <button id="monitorRefreshBtn" class="btn sm">实时状态下载</button>
-              <button id="monitorToggleBtn" class="btn sm danger">停止监控</button>
+              <button id="openSystemInfoModalBtn" class="btn sm" type="button">鏌ョ湅绯荤粺璇︽儏</button>
+              <button id="monitorRefreshBtn" class="btn sm">瀹炴椂鐘舵€佷笅杞?/button>
+              <button id="monitorToggleBtn" class="btn sm danger">鍋滄鐩戞帶</button>
             </div>
           </div>
           <div id="systemInfoQuick" class="system-info-quick">-</div>
@@ -199,7 +200,7 @@
           <article class="card metric-card cpu">
             <div class="kpi-head">
               <h3>CPU</h3>
-              <span class="kpi-tag">实时</span>
+              <span class="kpi-tag">瀹炴椂</span>
             </div>
             <p id="cpuUsage" class="metric">-</p>
             <small id="cpuCore" class="metric-sub">-</small>
@@ -209,10 +210,10 @@
                 id="trendMiniCpu"
                 class="mini-trend trend-open-target"
                 data-trend-key="cpu"
-                data-hint="点击放大"
+                data-hint="鐐瑰嚮鏀惧ぇ"
                 role="button"
                 tabindex="0"
-                title="点击放大查看 24 小时趋势"
+                title="鐐瑰嚮鏀惧ぇ鏌ョ湅 24 灏忔椂瓒嬪娍"
               ></div>
             </div>
             <small id="trendInfoCpu" class="trend-meta">-</small>
@@ -220,8 +221,8 @@
 
           <article class="card metric-card memory">
             <div class="kpi-head">
-              <h3>内存</h3>
-              <span class="kpi-tag">实时</span>
+              <h3>鍐呭瓨</h3>
+              <span class="kpi-tag">瀹炴椂</span>
             </div>
             <p id="memUsage" class="metric">-</p>
             <small id="memDetail" class="metric-sub">-</small>
@@ -231,10 +232,10 @@
                 id="trendMiniMemory"
                 class="mini-trend trend-open-target"
                 data-trend-key="memory"
-                data-hint="点击放大"
+                data-hint="鐐瑰嚮鏀惧ぇ"
                 role="button"
                 tabindex="0"
-                title="点击放大查看 24 小时趋势"
+                title="鐐瑰嚮鏀惧ぇ鏌ョ湅 24 灏忔椂瓒嬪娍"
               ></div>
             </div>
             <small id="trendInfoMemory" class="trend-meta">-</small>
@@ -242,8 +243,8 @@
 
           <article class="card metric-card network">
             <div class="kpi-head">
-              <h3>网络流量</h3>
-              <span class="kpi-tag">实时</span>
+              <h3>缃戠粶娴侀噺</h3>
+              <span class="kpi-tag">瀹炴椂</span>
             </div>
             <p id="netTraffic" class="metric">-</p>
             <small id="netPackets" class="metric-sub">-</small>
@@ -252,10 +253,10 @@
                 id="trendMiniNetwork"
                 class="mini-trend trend-open-target"
                 data-trend-key="network"
-                data-hint="点击放大"
+                data-hint="鐐瑰嚮鏀惧ぇ"
                 role="button"
                 tabindex="0"
-                title="点击放大查看 24 小时趋势"
+                title="鐐瑰嚮鏀惧ぇ鏌ョ湅 24 灏忔椂瓒嬪娍"
               ></div>
             </div>
             <small id="trendInfoNetwork" class="trend-meta">-</small>
@@ -263,8 +264,8 @@
 
           <article class="card metric-card process">
             <div class="kpi-head">
-              <h3>总进程数</h3>
-              <span class="kpi-tag">全局</span>
+              <h3>鎬昏繘绋嬫暟</h3>
+              <span class="kpi-tag">鍏ㄥ眬</span>
             </div>
             <p id="processCount" class="metric">-</p>
             <small id="osInfo" class="metric-sub">-</small>
@@ -273,10 +274,10 @@
                 id="trendMiniProcess"
                 class="mini-trend trend-open-target"
                 data-trend-key="process"
-                data-hint="点击放大"
+                data-hint="鐐瑰嚮鏀惧ぇ"
                 role="button"
                 tabindex="0"
-                title="点击放大查看 24 小时趋势"
+                title="鐐瑰嚮鏀惧ぇ鏌ョ湅 24 灏忔椂瓒嬪娍"
               ></div>
             </div>
             <small id="trendInfoProcess" class="trend-meta">-</small>
@@ -284,8 +285,8 @@
 
           <article class="card metric-card diskio">
             <div class="kpi-head">
-              <h3>磁盘 IO</h3>
-              <span class="kpi-tag">实时</span>
+              <h3>纾佺洏 IO</h3>
+              <span class="kpi-tag">瀹炴椂</span>
             </div>
             <p id="diskIoFlow" class="metric">-</p>
             <small id="diskIoOps" class="metric-sub">-</small>
@@ -294,10 +295,10 @@
                 id="trendMiniDiskIO"
                 class="mini-trend trend-open-target"
                 data-trend-key="diskio"
-                data-hint="点击放大"
+                data-hint="鐐瑰嚮鏀惧ぇ"
                 role="button"
                 tabindex="0"
-                title="点击放大查看 24 小时趋势"
+                title="鐐瑰嚮鏀惧ぇ鏌ョ湅 24 灏忔椂瓒嬪娍"
               ></div>
             </div>
             <small id="trendInfoDiskIO" class="trend-meta">-</small>
@@ -307,10 +308,10 @@
         <div class="grid cards-2">
           <article class="card">
           <div class="card-head">
-            <h3>磁盘状态</h3>
+            <h3>纾佺洏鐘舵€?/h3>
             <div class="ops">
                 <small id="diskIoSummary">-</small>
-                <button id="openDiskMetaModalBtn" class="btn sm" type="button">硬件汇总</button>
+                <button id="openDiskMetaModalBtn" class="btn sm" type="button">纭欢姹囨€?/button>
               </div>
             </div>
             <div id="diskVolumeChart" class="disk-volume-chart"></div>
@@ -319,10 +320,10 @@
 
           <article class="card">
             <div class="card-head">
-              <h3>监听端口</h3>
+              <h3>鐩戝惉绔彛</h3>
               <div class="ops">
-                <input id="portSearch" class="input" placeholder="搜索进程名 / 端口 / PID / 路径" />
-                <button id="openPortModalBtn" class="btn sm">查看详情</button>
+                <input id="portSearch" class="input" placeholder="鎼滅储杩涚▼鍚?/ 绔彛 / PID / 璺緞" />
+                <button id="openPortModalBtn" class="btn sm">鏌ョ湅璇︽儏</button>
               </div>
             </div>
             <div id="portList" class="table"></div>
@@ -330,18 +331,22 @@
         </div>
 
         <div class="grid cards-2">
-          <article class="card service-status-card">
+                    <article class="card service-status-card">
             <div class="card-head">
-              <h3>应用 / 数据库 / 中间件 / 协议状态</h3>
+              <h3>进程流量列表</h3>
+              <div class="ops">
+                <input id="monitorTrafficSearch" class="input" placeholder="搜索进程 / PID / 协议 / IP / 端口" />
+                <button id="monitorTrafficRefreshBtn" class="btn sm" type="button">刷新</button>
+              </div>
             </div>
-            <div id="serviceList" class="table"></div>
+            <div id="monitorTrafficList" class="table"></div>
           </article>
 
           <article class="card process-top-card">
             <div class="card-head">
-              <h3>进程排行 / JVM</h3>
+              <h3>杩涚▼鎺掕 / JVM</h3>
               <div class="ops">
-                <input id="processSearch" class="input" placeholder="搜索进程名 / 路径 / PID" />
+                <input id="processSearch" class="input" placeholder="鎼滅储杩涚▼鍚?/ 璺緞 / PID" />
               </div>
             </div>
             <div id="topProcessList" class="table"></div>
@@ -352,138 +357,110 @@
       <section id="logs" class="panel">
         <div class="panel-head panel-head-right">
           <div class="ops log-source-ops">
-            <button id="logAddCardBtn" class="btn sm">添加日志源</button>
+            <button id="logAddCardBtn" class="btn sm">娣诲姞鏃ュ織婧?/button>
             <select id="logSourceSelect" class="input"></select>
-            <button id="logDeleteCardBtn" class="btn sm danger" type="button">删除当前</button>
+            <button id="logDeleteCardBtn" class="btn sm danger" type="button">鍒犻櫎褰撳墠</button>
           </div>
         </div>
 
         <div class="card">
           <div class="row">
-            <input id="logKeyword" class="input" placeholder="关键字（全文检索）" />
+            <input id="logKeyword" class="input" placeholder="鍏抽敭瀛楋紙鍏ㄦ枃妫€绱級" />
             <select id="logLevel" class="input">
-              <option value="all">全部</option>
-              <option value="info">信息</option>
-              <option value="error">错误</option>
+              <option value="all">鍏ㄩ儴</option>
+              <option value="info">淇℃伅</option>
+              <option value="error">閿欒</option>
             </select>
             <select id="logRule" class="input">
-              <option value="">常见问题规则</option>
+              <option value="">甯歌闂瑙勫垯</option>
             </select>
             <input id="logLimit" class="input sm" value="300" />
-            <button id="logQueryBtn" class="btn">查询</button>
-            <button id="logErrorBtn" class="btn">仅错误</button>
-            <button id="logExportBtn" class="btn">导出</button>
+            <button id="logQueryBtn" class="btn">鏌ヨ</button>
+            <button id="logErrorBtn" class="btn">浠呴敊璇?/button>
+            <button id="logExportBtn" class="btn">瀵煎嚭</button>
           </div>
-          <p id="logCurrentApp" class="hint">当前日志源：</p>
+          <p id="logCurrentApp" class="hint">褰撳墠鏃ュ織婧愶細</p>
           <div id="logFileSelector" class="selector"></div>
           <div id="logStats" class="log-stats-grid"></div>
           <div id="logResult" class="log-view"></div>
         </div>
       </section>
-
-      <section id="traffic" class="panel traffic-panel">
-        <article class="card traffic-hero-card">
-          <div class="card-head">
-            <h3>进程 / 连接流量</h3>
-            <div class="ops">
-              <button id="trafficRefreshBtn" class="btn sm" type="button">刷新</button>
-            </div>
-          </div>
-          <p data-traffic-status-summary class="hint">正在加载流量分析状态...</p>
-          <div class="traffic-kpi-grid">
-            <div class="traffic-kpi-card">
-              <span>连接数</span>
-              <strong data-traffic-kpi="connections">0</strong>
-            </div>
-            <div class="traffic-kpi-card">
-              <span>已捕获数据包</span>
-              <strong data-traffic-kpi="packets">0</strong>
-            </div>
-            <div class="traffic-kpi-card">
-              <span>HTTP 明文</span>
-              <strong data-traffic-kpi="http">0</strong>
-            </div>
-            <div class="traffic-kpi-card">
-              <span>抓包接口</span>
-              <strong data-traffic-kpi="interface">-</strong>
-            </div>
-          </div>
-        </article>
-
+      <section id="app-manager" class="panel">
         <article class="card">
           <div class="card-head">
-            <h3>进程 / 连接流量排行</h3>
+            <h3>应用管理列表</h3>
             <div class="ops">
-              <input id="trafficConnectionSearch" class="input sm" placeholder="搜索进程 / PID / 端口 / IP" />
+              <button id="appManagerAddBtn" class="btn sm" type="button">新增应用</button>
+              <button id="appManagerRefreshBtn" class="btn sm" type="button">刷新</button>
             </div>
           </div>
-          <div id="trafficConnectionTable" class="table"></div>
+          <p id="appManagerSummary" class="hint">正在加载应用列表...</p>
+          <div id="appManagerTable" class="table"></div>
         </article>
       </section>
-
       <section id="traffic-capture" class="panel traffic-panel">
         <article class="card traffic-hero-card">
           <div class="card-head">
-            <h3>数据包抓包（Wireshark 风格）</h3>
+            <h3>鏁版嵁鍖呮姄鍖咃紙Wireshark 椋庢牸锛?/h3>
             <div class="ops traffic-capture-ops">
               <select id="trafficInterface" class="input"></select>
               <select id="trafficBuiltinFilter" class="input sm">
-                <option value="ip or ip6 or arp">全部流量</option>
-                <option value="tcp">仅 TCP</option>
-                <option value="udp">仅 UDP</option>
-                <option value="tcp port 80 or tcp port 8080 or tcp port 8000 or tcp port 8888">HTTP 常见端口</option>
+                <option value="ip or ip6 or arp">鍏ㄩ儴娴侀噺</option>
+                <option value="tcp">浠?TCP</option>
+                <option value="udp">浠?UDP</option>
+                <option value="tcp port 80 or tcp port 8080 or tcp port 8000 or tcp port 8888">HTTP 甯歌绔彛</option>
                 <option value="tcp port 443">HTTPS/TLS</option>
                 <option value="udp port 53 or tcp port 53">DNS</option>
               </select>
-              <input id="trafficCustomFilter" class="input" placeholder="自定义抓包过滤（BPF），例如 tcp and port 443" />
-              <button id="trafficStartBtn" class="btn sm" type="button">开始抓包</button>
-              <button id="trafficStopBtn" class="btn sm danger" type="button">停止抓包</button>
-              <button id="trafficCaptureRefreshBtn" class="btn sm" type="button">刷新</button>
+              <input id="trafficCustomFilter" class="input" placeholder="鑷畾涔夋姄鍖呰繃婊わ紙BPF锛夛紝渚嬪 tcp and port 443" />
+              <button id="trafficStartBtn" class="btn sm" type="button">寮€濮嬫姄鍖?/button>
+              <button id="trafficStopBtn" class="btn sm danger" type="button">鍋滄鎶撳寘</button>
+              <button id="trafficCaptureRefreshBtn" class="btn sm" type="button">鍒锋柊</button>
             </div>
           </div>
-          <p data-traffic-status-summary class="hint">正在加载抓包状态...</p>
+          <p data-traffic-status-summary class="hint">姝ｅ湪鍔犺浇鎶撳寘鐘舵€?..</p>
           <div class="traffic-kpi-grid">
             <div class="traffic-kpi-card">
-              <span>连接数</span>
+              <span>杩炴帴鏁?/span>
               <strong data-traffic-kpi="connections">0</strong>
             </div>
             <div class="traffic-kpi-card">
-              <span>已捕获数据包</span>
+              <span>宸叉崟鑾锋暟鎹寘</span>
               <strong data-traffic-kpi="packets">0</strong>
             </div>
             <div class="traffic-kpi-card">
-              <span>HTTP 明文</span>
+              <span>HTTP 鏄庢枃</span>
               <strong data-traffic-kpi="http">0</strong>
             </div>
             <div class="traffic-kpi-card">
-              <span>抓包接口</span>
+              <span>鎶撳寘鎺ュ彛</span>
               <strong data-traffic-kpi="interface">-</strong>
             </div>
           </div>
-          <p class="hint">默认展示数据包列表；支持内置过滤和自定义过滤。右键数据包可切换解码方式。</p>
+          <p class="hint">榛樿灞曠ず鏁版嵁鍖呭垪琛紱鏀寔鍐呯疆杩囨护鍜岃嚜瀹氫箟杩囨护銆傚彸閿暟鎹寘鍙垏鎹㈣В鐮佹柟寮忋€?/p>
         </article>
 
         <article class="card traffic-filter-card">
           <div class="row">
             <select id="trafficDisplayPreset" class="input sm">
-              <option value="all">显示全部</option>
-              <option value="tcp">显示 TCP</option>
-              <option value="udp">显示 UDP</option>
-              <option value="http">显示 HTTP</option>
-              <option value="https">显示 HTTPS/TLS</option>
-              <option value="dns">显示 DNS</option>
+              <option value="all">鏄剧ず鍏ㄩ儴</option>
+              <option value="tcp">鏄剧ず TCP</option>
+              <option value="udp">鏄剧ず UDP</option>
+              <option value="http">鏄剧ず HTTP</option>
+              <option value="https">鏄剧ず HTTPS/TLS</option>
+              <option value="dns">鏄剧ず DNS</option>
             </select>
-            <input id="trafficDisplayFilter" class="input" placeholder="自定义显示过滤：proto:tcp src:10.0.0.8 dst:1.1.1.1 port:443 len>200 contains:login" />
-            <button id="trafficApplyFilterBtn" class="btn sm" type="button">应用过滤</button>
-            <button id="trafficClearFilterBtn" class="btn sm" type="button">清空过滤</button>
+            <input id="trafficDisplayFilter" class="input" placeholder="鑷畾涔夋樉绀鸿繃婊わ細proto:tcp src:10.0.0.8 dst:1.1.1.1 port:443 len>200 contains:login" />
+            <button id="trafficApplyFilterBtn" class="btn sm" type="button">搴旂敤杩囨护</button>
+            <button id="trafficClearFilterBtn" class="btn sm" type="button">娓呯┖杩囨护</button>
           </div>
         </article>
 
         <article class="card traffic-packet-card">
           <div class="card-head">
-            <h3>数据包列表</h3>
+            <h3>鏁版嵁鍖呭垪琛?/h3>
             <div class="ops">
-              <span id="trafficPacketHint" class="hint">右键任意行可切换解码</span>
+              <span id="trafficPacketHint" class="hint">鍙抽敭浠绘剰琛屽彲鍒囨崲瑙ｇ爜</span>
             </div>
           </div>
           <div id="trafficPacketTable" class="table traffic-packet-table"></div>
@@ -491,71 +468,71 @@
 
         <article class="card traffic-detail-card">
           <div class="card-head">
-            <h3>数据包详情</h3>
+            <h3>鏁版嵁鍖呰鎯?/h3>
             <div class="ops">
-              <span id="trafficPacketDetailTitle" class="hint">未选择数据包</span>
+              <span id="trafficPacketDetailTitle" class="hint">鏈€夋嫨鏁版嵁鍖?/span>
             </div>
           </div>
           <div id="trafficPacketDetailMeta" class="table"></div>
-          <pre id="trafficPacketDetailBody" class="log-view compact">请选择上方数据包查看详情</pre>
+          <pre id="trafficPacketDetailBody" class="log-view compact">璇烽€夋嫨涓婃柟鏁版嵁鍖呮煡鐪嬭鎯?/pre>
         </article>
 
         <div id="trafficPacketContextMenu" class="traffic-context-menu hidden">
-          <button type="button" data-decode-mode="auto">自动解码</button>
-          <button type="button" data-decode-mode="http">按 HTTP 尝试解码</button>
-          <button type="button" data-decode-mode="ascii">按 ASCII 文本</button>
-          <button type="button" data-decode-mode="hex">按 HEX 视图</button>
+          <button type="button" data-decode-mode="auto">鑷姩瑙ｇ爜</button>
+          <button type="button" data-decode-mode="http">鎸?HTTP 灏濊瘯瑙ｇ爜</button>
+          <button type="button" data-decode-mode="ascii">鎸?ASCII 鏂囨湰</button>
+          <button type="button" data-decode-mode="hex">鎸?HEX 瑙嗗浘</button>
         </div>
       </section>
 
       <section id="repair" class="panel repair-panel">
         <div class="repair-hero">
           <div>
-            <p>上传脚本、定义参数并执行，执行日志与历史记录集中展示。</p>
+            <p>涓婁紶鑴氭湰銆佸畾涔夊弬鏁板苟鎵ц锛屾墽琛屾棩蹇椾笌鍘嗗彶璁板綍闆嗕腑灞曠ず銆?/p>
           </div>
-          <span class="repair-badge">脚本执行</span>
+          <span class="repair-badge">鑴氭湰鎵ц</span>
         </div>
 
         <div class="repair-grid">
           <article class="card repair-card upload-card">
             <div class="repair-card-head">
-              <h3>上传脚本</h3>
-              <small>支持 ps1 / sh / bat / cmd</small>
+              <h3>涓婁紶鑴氭湰</h3>
+              <small>鏀寔 ps1 / sh / bat / cmd</small>
             </div>
             <form id="uploadScriptForm" class="repair-form">
               <label class="field">
-                <span>脚本文件</span>
+                <span>鑴氭湰鏂囦欢</span>
                 <input type="file" name="file" class="input" required />
               </label>
               <label class="field">
-                <span>脚本名称</span>
-                <input name="name" class="input" placeholder="例如：修复 nginx 配置" />
+                <span>鑴氭湰鍚嶇О</span>
+                <input name="name" class="input" placeholder="渚嬪锛氫慨澶?nginx 閰嶇疆" />
               </label>
               <label class="field">
-                <span>运行 Shell</span>
+                <span>杩愯 Shell</span>
                 <input name="shell" class="input" placeholder="powershell / sh / cmd" />
               </label>
               <label class="field">
-                <span>默认参数</span>
-                <input name="parameters" class="input" placeholder="例如：-env prod,-force true" />
+                <span>榛樿鍙傛暟</span>
+                <input name="parameters" class="input" placeholder="渚嬪锛?env prod,-force true" />
               </label>
               <label class="field field-full">
-                <span>脚本描述</span>
-                <input name="description" class="input" placeholder="记录用途、风险和适用场景" />
+                <span>鑴氭湰鎻忚堪</span>
+                <input name="description" class="input" placeholder="璁板綍鐢ㄩ€斻€侀闄╁拰閫傜敤鍦烘櫙" />
               </label>
-              <button class="btn repair-submit" type="submit">上传脚本</button>
+              <button class="btn repair-submit" type="submit">涓婁紶鑴氭湰</button>
             </form>
           </article>
 
           <article class="card repair-card run-card">
             <div class="repair-card-head">
-              <h3>执行脚本</h3>
-              <small>实时输出 / 可追溯</small>
+              <h3>鎵ц鑴氭湰</h3>
+              <small>瀹炴椂杈撳嚭 / 鍙拷婧?/small>
             </div>
             <div class="run-toolbar">
               <select id="scriptName" class="input"></select>
-              <input id="scriptArgs" class="input" placeholder="执行参数，例如：-host 127.0.0.1 -mode safe" />
-              <button id="runScriptBtn" class="btn">执行</button>
+              <input id="scriptArgs" class="input" placeholder="鎵ц鍙傛暟锛屼緥濡傦細-host 127.0.0.1 -mode safe" />
+              <button id="runScriptBtn" class="btn">鎵ц</button>
             </div>
             <pre id="scriptOutput" class="log-view compact repair-output"></pre>
           </article>
@@ -564,16 +541,16 @@
         <div class="repair-bottom-grid">
           <article class="card repair-card library-card">
             <div class="repair-card-head">
-              <h3>脚本库</h3>
-              <small>已注册脚本</small>
+              <h3>鑴氭湰搴?/h3>
+              <small>宸叉敞鍐岃剼鏈?/small>
             </div>
             <div id="scriptLibrary" class="script-library"></div>
           </article>
 
           <article class="card repair-card">
             <div class="repair-card-head">
-              <h3>执行历史</h3>
-              <small>最近运行记录</small>
+              <h3>鎵ц鍘嗗彶</h3>
+              <small>鏈€杩戣繍琛岃褰?/small>
             </div>
             <div id="scriptRunHistory" class="table"></div>
           </article>
@@ -584,27 +561,27 @@
         <article class="card">
           <div class="row">
             <select id="backupType" class="input">
-              <option value="files">重要文件备份</option>
-              <option value="database">数据库备份</option>
-              <option value="es">ES 备份</option>
+              <option value="files">閲嶈鏂囦欢澶囦唤</option>
+              <option value="database">鏁版嵁搴撳浠?/option>
+              <option value="es">ES 澶囦唤</option>
             </select>
-            <input id="backupName" class="input" placeholder="备份名称（可选）" />
-            <button id="runBackupBtn" class="btn">开始备份</button>
+            <input id="backupName" class="input" placeholder="澶囦唤鍚嶇О锛堝彲閫夛級" />
+            <button id="runBackupBtn" class="btn">寮€濮嬪浠?/button>
           </div>
           <div class="row">
-            <input id="backupTarget" class="input" placeholder="备份目录（可选，支持修改存储路径）" />
-            <button id="backupSelectTargetBtn" class="btn sm" type="button">选择备份目标</button>
-            <button id="backupCreateTargetBtn" class="btn sm" type="button">新建目录</button>
+            <input id="backupTarget" class="input" placeholder="澶囦唤鐩綍锛堝彲閫夛紝鏀寔淇敼瀛樺偍璺緞锛? />
+            <button id="backupSelectTargetBtn" class="btn sm" type="button">閫夋嫨澶囦唤鐩爣</button>
+            <button id="backupCreateTargetBtn" class="btn sm" type="button">鏂板缓鐩綍</button>
           </div>
           <div class="row">
-            <div id="backupSourceSummary" class="backup-source-summary">未选择备份源，默认使用配置文件中的源目录</div>
-            <button id="backupSelectSourceBtn" class="btn sm" type="button">选择备份源目录</button>
+            <div id="backupSourceSummary" class="backup-source-summary">鏈€夋嫨澶囦唤婧愶紝榛樿浣跨敤閰嶇疆鏂囦欢涓殑婧愮洰褰?/div>
+            <button id="backupSelectSourceBtn" class="btn sm" type="button">閫夋嫨澶囦唤婧愮洰褰?/button>
           </div>
           <div id="backupSourceList" class="selector backup-source-list"></div>
-          <p class="hint">数据库和 ES 备份命令来源于配置文件 `backup.databases / backup.es`。</p>
+          <p class="hint">鏁版嵁搴撳拰 ES 澶囦唤鍛戒护鏉ユ簮浜庨厤缃枃浠?`backup.databases / backup.es`銆?/p>
         </article>
         <article class="card">
-          <h3>备份文件列表</h3>
+          <h3>澶囦唤鏂囦欢鍒楄〃</h3>
           <div id="backupList" class="table"></div>
         </article>
       </section>
@@ -613,60 +590,60 @@
         <article class="card cleanup-toolbar-card">
           <div class="cleanup-toolbar">
             <div class="cleanup-toolbar-title">
-              <h3>数据清理 / 空间分析</h3>
-              <span id="cleanupIndexerTag" class="cleanup-indexer-tag">内置扫描引擎</span>
+              <h3>鏁版嵁娓呯悊 / 绌洪棿鍒嗘瀽</h3>
+              <span id="cleanupIndexerTag" class="cleanup-indexer-tag">鍐呯疆鎵弿寮曟搸</span>
             </div>
             <div class="cleanup-toolbar-ops">
-              <button id="cleanupLoadRootsBtn" class="btn sm" type="button">刷新分区</button>
-              <button id="cleanupOpenTreeBtn" class="btn sm" type="button">从目录树选择</button>
-              <button id="cleanupScanBtn" class="btn sm" type="button">开始扫描</button>
-              <button id="cleanupStopScanBtn" class="btn sm danger" type="button" disabled>停止扫描</button>
+              <button id="cleanupLoadRootsBtn" class="btn sm" type="button">鍒锋柊鍒嗗尯</button>
+              <button id="cleanupOpenTreeBtn" class="btn sm" type="button">浠庣洰褰曟爲閫夋嫨</button>
+              <button id="cleanupScanBtn" class="btn sm" type="button">寮€濮嬫壂鎻?/button>
+              <button id="cleanupStopScanBtn" class="btn sm danger" type="button" disabled>鍋滄鎵弿</button>
             </div>
           </div>
           <div class="cleanup-filter-row">
             <div id="cleanupRootOptions" class="selector cleanup-root-options"></div>
           </div>
           <div class="cleanup-filter-row">
-            <input id="cleanupCustomRoot" class="input" placeholder="自定义扫描目录（绝对路径），例如 D:\data 或 /data/logs" />
-            <button id="cleanupAddRootBtn" class="btn sm" type="button">添加目录</button>
+            <input id="cleanupCustomRoot" class="input" placeholder="鑷畾涔夋壂鎻忕洰褰曪紙缁濆璺緞锛夛紝渚嬪 D:\data 鎴?/data/logs" />
+            <button id="cleanupAddRootBtn" class="btn sm" type="button">娣诲姞鐩綍</button>
           </div>
           <div id="cleanupCustomRootList" class="selector cleanup-custom-roots"></div>
           <div class="cleanup-filter-row compact">
-            <input id="cleanupSearch" class="input" placeholder="模糊搜索：文件名 / 路径 / 文件类型" />
+            <input id="cleanupSearch" class="input" placeholder="妯＄硦鎼滅储锛氭枃浠跺悕 / 璺緞 / 鏂囦欢绫诲瀷" />
             <input id="cleanupLargeThresholdGB" class="input sm" value="1" />
-            <button id="cleanupApplyFilterBtn" class="btn sm" type="button">应用筛选</button>
+            <button id="cleanupApplyFilterBtn" class="btn sm" type="button">搴旂敤绛涢€?/button>
           </div>
           <div class="scan-progress-card">
             <div class="scan-progress-track">
               <span id="cleanupScanProgressBar" class="scan-progress-bar"></span>
             </div>
-            <div id="cleanupScanProgressText" class="scan-progress-text">等待开始</div>
+            <div id="cleanupScanProgressText" class="scan-progress-text">绛夊緟寮€濮?/div>
           </div>
           <div class="cleanup-kpi-grid">
             <div class="cleanup-kpi-card">
-              <div class="cleanup-kpi-label">已扫描文件</div>
+              <div class="cleanup-kpi-label">宸叉壂鎻忔枃浠?/div>
               <div id="cleanupKpiScanned" class="cleanup-kpi-value">0</div>
             </div>
             <div class="cleanup-kpi-card">
-              <div class="cleanup-kpi-label">当前命中</div>
+              <div class="cleanup-kpi-label">褰撳墠鍛戒腑</div>
               <div id="cleanupKpiMatched" class="cleanup-kpi-value">0</div>
             </div>
             <div class="cleanup-kpi-card">
-              <div class="cleanup-kpi-label">命中总大小</div>
+              <div class="cleanup-kpi-label">鍛戒腑鎬诲ぇ灏?/div>
               <div id="cleanupKpiSize" class="cleanup-kpi-value">0 B</div>
             </div>
             <div class="cleanup-kpi-card">
-              <div class="cleanup-kpi-label">大文件数量</div>
+              <div class="cleanup-kpi-label">澶ф枃浠舵暟閲?/div>
               <div id="cleanupKpiLarge" class="cleanup-kpi-value">0</div>
             </div>
           </div>
-          <p id="cleanupSummary" class="hint">未开始扫描</p>
+          <p id="cleanupSummary" class="hint">鏈紑濮嬫壂鎻?/p>
         </article>
 
         <div class="cleanup-main-grid">
           <article class="card cleanup-card-main">
             <div class="card-head">
-              <h3>体积热区（WizTree 风格）</h3>
+              <h3>浣撶Н鐑尯锛圵izTree 椋庢牸锛?/h3>
             </div>
             <div id="cleanupTopBars" class="cleanup-bars-view"></div>
             <div id="cleanupFileList" class="table"></div>
@@ -674,20 +651,20 @@
           <div class="cleanup-side-column">
             <article class="card">
               <div class="card-head">
-                <h3>大文件（按大小降序）</h3>
+                <h3>澶ф枃浠讹紙鎸夊ぇ灏忛檷搴忥級</h3>
               </div>
               <div id="cleanupLargeFileList" class="table"></div>
             </article>
             <article class="card">
               <div class="card-head">
-                <h3>目录占用排行</h3>
+                <h3>鐩綍鍗犵敤鎺掕</h3>
               </div>
               <div id="cleanupDirChart" class="cleanup-mini-chart"></div>
               <div id="cleanupDirSummaryList" class="table"></div>
             </article>
             <article class="card">
               <div class="card-head">
-                <h3>文件类型分布</h3>
+                <h3>鏂囦欢绫诲瀷鍒嗗竷</h3>
               </div>
               <div id="cleanupTypeChart" class="cleanup-mini-chart"></div>
               <div id="cleanupTypeSummaryList" class="table"></div>
@@ -697,16 +674,16 @@
 
         <article class="card cleanup-garbage-card">
           <div class="card-head">
-            <h3>垃圾清理（安全模式）</h3>
+            <h3>鍨冨溇娓呯悊锛堝畨鍏ㄦā寮忥級</h3>
             <div class="ops">
-              <button id="cleanupPreviewBtn" class="btn sm" type="button">预估可清理</button>
-              <button id="cleanupRunBtn" class="btn sm danger" type="button">执行清理</button>
-              <button id="cleanupStopGarbageBtn" class="btn sm" type="button" disabled>停止清理</button>
+              <button id="cleanupPreviewBtn" class="btn sm" type="button">棰勪及鍙竻鐞?/button>
+              <button id="cleanupRunBtn" class="btn sm danger" type="button">鎵ц娓呯悊</button>
+              <button id="cleanupStopGarbageBtn" class="btn sm" type="button" disabled>鍋滄娓呯悊</button>
             </div>
           </div>
-          <p class="hint">仅清理缓存 / 临时 / 日志类旧文件，并保留近期文件，避免影响系统运行。</p>
+          <p class="hint">浠呮竻鐞嗙紦瀛?/ 涓存椂 / 鏃ュ織绫绘棫鏂囦欢锛屽苟淇濈暀杩戞湡鏂囦欢锛岄伩鍏嶅奖鍝嶇郴缁熻繍琛屻€?/p>
           <div id="cleanupGarbageTargets" class="selector"></div>
-          <p id="cleanupGarbageSummary" class="hint">未开始清理</p>
+          <p id="cleanupGarbageSummary" class="hint">鏈紑濮嬫竻鐞?/p>
           <div id="cleanupGarbageResult" class="table"></div>
         </article>
       </section>
@@ -715,26 +692,26 @@
         <article class="card docker-hero-card">
           <div class="docker-hero-head">
             <div>
-              <h3>Docker 管理中心</h3>
-              <p id="dockerStatusSummary" class="hint docker-status-summary">未加载 Docker 状态</p>
+              <h3>Docker 绠＄悊涓績</h3>
+              <p id="dockerStatusSummary" class="hint docker-status-summary">鏈姞杞?Docker 鐘舵€?/p>
             </div>
             <div class="docker-hero-badge">Container Ops</div>
           </div>
           <div class="docker-kpi-grid">
             <div class="docker-kpi-card total">
-              <span>容器总数</span>
+              <span>瀹瑰櫒鎬绘暟</span>
               <strong id="dockerKpiTotal">0</strong>
             </div>
             <div class="docker-kpi-card running">
-              <span>运行中</span>
+              <span>杩愯涓?/span>
               <strong id="dockerKpiRunning">0</strong>
             </div>
             <div class="docker-kpi-card stopped">
-              <span>已停止</span>
+              <span>宸插仠姝?/span>
               <strong id="dockerKpiStopped">0</strong>
             </div>
             <div class="docker-kpi-card image">
-              <span>镜像数量</span>
+              <span>闀滃儚鏁伴噺</span>
               <strong id="dockerKpiImages">0</strong>
             </div>
           </div>
@@ -742,34 +719,34 @@
 
         <article class="card docker-table-card">
           <div class="card-head">
-            <h3>Docker 资产管理</h3>
+            <h3>Docker 璧勪骇绠＄悊</h3>
             <div class="ops">
-              <input id="dockerSearch" class="input" placeholder="搜索容器名 / 镜像 / ID / 状态" />
+              <input id="dockerSearch" class="input" placeholder="鎼滅储瀹瑰櫒鍚?/ 闀滃儚 / ID / 鐘舵€? />
               <select id="dockerScope" class="input sm">
-                <option value="all">全部容器</option>
-                <option value="running">仅运行中</option>
+                <option value="all">鍏ㄩ儴瀹瑰櫒</option>
+                <option value="running">浠呰繍琛屼腑</option>
               </select>
-              <button id="dockerRefreshBtn" class="btn sm" type="button">刷新容器</button>
+              <button id="dockerRefreshBtn" class="btn sm" type="button">鍒锋柊瀹瑰櫒</button>
             </div>
           </div>
           <div class="docker-tabs">
-            <button id="dockerTabContainers" class="btn sm active" type="button">容器</button>
-            <button id="dockerTabImages" class="btn sm" type="button">镜像</button>
+            <button id="dockerTabContainers" class="btn sm active" type="button">瀹瑰櫒</button>
+            <button id="dockerTabImages" class="btn sm" type="button">闀滃儚</button>
           </div>
           <div id="dockerBatchActions" class="docker-batch-actions">
-            <select id="dockerBatchActionType" class="input sm" aria-label="批量操作类型"></select>
-            <button id="dockerBatchApplyBtn" class="btn sm" type="button">执行批量操作</button>
-            <span class="hint">先勾选要操作的行，再执行</span>
+            <select id="dockerBatchActionType" class="input sm" aria-label="鎵归噺鎿嶄綔绫诲瀷"></select>
+            <button id="dockerBatchApplyBtn" class="btn sm" type="button">鎵ц鎵归噺鎿嶄綔</button>
+            <span class="hint">鍏堝嬀閫夎鎿嶄綔鐨勮锛屽啀鎵ц</span>
           </div>
           <div class="docker-pagination">
             <div class="docker-pagination-left">
-              <button id="dockerPrevBtn" class="btn sm" type="button">上一页</button>
-              <button id="dockerNextBtn" class="btn sm" type="button">下一页</button>
+              <button id="dockerPrevBtn" class="btn sm" type="button">涓婁竴椤?/button>
+              <button id="dockerNextBtn" class="btn sm" type="button">涓嬩竴椤?/button>
               <span id="dockerPageInfo" class="docker-pagination-info">0 / 0</span>
-              <span id="dockerTotalInfo" class="docker-pagination-total">共 0 个容器</span>
+              <span id="dockerTotalInfo" class="docker-pagination-total">鍏?0 涓鍣?/span>
             </div>
             <div class="docker-pagination-right">
-              <label for="dockerPageSize">每页</label>
+              <label for="dockerPageSize">姣忛〉</label>
               <select id="dockerPageSize" class="input sm">
                 <option value="10">10</option>
                 <option value="20" selected>20</option>
@@ -786,7 +763,7 @@
       <section id="remote-control" class="panel remote-panel">
         <article class="card remote-card">
           <div class="card-head">
-            <h3>远程桌面控制</h3>
+            <h3>杩滅▼妗岄潰鎺у埗</h3>
             <div class="ops remote-ops">
               <select id="remoteFps" class="input sm">
                 <option value="5">5 FPS</option>
@@ -795,29 +772,29 @@
                 <option value="15">15 FPS</option>
               </select>
               <select id="remoteQuality" class="input sm">
-                <option value="45">清晰度 45%</option>
-                <option value="60" selected>清晰度 60%</option>
-                <option value="75">清晰度 75%</option>
-                <option value="85">清晰度 85%</option>
+                <option value="45">娓呮櫚搴?45%</option>
+                <option value="60" selected>娓呮櫚搴?60%</option>
+                <option value="75">娓呮櫚搴?75%</option>
+                <option value="85">娓呮櫚搴?85%</option>
               </select>
               <select id="remoteScale" class="input sm">
-                <option value="0.5">分辨率 50%</option>
-                <option value="0.75" selected>分辨率 75%</option>
-                <option value="1">分辨率 100%</option>
+                <option value="0.5">鍒嗚鲸鐜?50%</option>
+                <option value="0.75" selected>鍒嗚鲸鐜?75%</option>
+                <option value="1">鍒嗚鲸鐜?100%</option>
               </select>
-              <button id="remoteConnectBtn" class="btn sm" type="button">连接桌面</button>
-              <button id="remoteDisconnectBtn" class="btn sm danger" type="button" disabled>断开</button>
-              <button id="remoteFullscreenBtn" class="btn sm" type="button">全屏</button>
+              <button id="remoteConnectBtn" class="btn sm" type="button">杩炴帴妗岄潰</button>
+              <button id="remoteDisconnectBtn" class="btn sm danger" type="button" disabled>鏂紑</button>
+              <button id="remoteFullscreenBtn" class="btn sm" type="button">鍏ㄥ睆</button>
             </div>
           </div>
           <div class="remote-status-row">
-            <span id="remoteStatusBadge" class="badge unknown">未连接</span>
-            <span id="remoteStatusText" class="hint">等待连接</span>
-            <span class="hint">鼠标点击/拖动/滚轮和键盘按键会直接控制服务器桌面。</span>
+            <span id="remoteStatusBadge" class="badge unknown">鏈繛鎺?/span>
+            <span id="remoteStatusText" class="hint">绛夊緟杩炴帴</span>
+            <span class="hint">榧犳爣鐐瑰嚮/鎷栧姩/婊氳疆鍜岄敭鐩樻寜閿細鐩存帴鎺у埗鏈嶅姟鍣ㄦ闈€?/span>
           </div>
           <div id="remoteDesktopWrap" class="remote-desktop-wrap">
             <canvas id="remoteDesktopCanvas" class="remote-desktop-canvas" width="1280" height="720" tabindex="0"></canvas>
-            <div id="remoteDesktopOverlay" class="remote-desktop-overlay">点击“连接桌面”开始远程控制</div>
+            <div id="remoteDesktopOverlay" class="remote-desktop-overlay">鐐瑰嚮鈥滆繛鎺ユ闈⑩€濆紑濮嬭繙绋嬫帶鍒?/div>
           </div>
         </article>
       </section>
@@ -826,85 +803,85 @@
         <div class="grid cards-2">
           <article class="card">
             <div class="card-head">
-              <h3>系统管理 / 全局配置</h3>
+              <h3>绯荤粺绠＄悊 / 鍏ㄥ眬閰嶇疆</h3>
               <div class="ops">
-                <button id="systemSaveBtn" class="btn sm" type="button">保存配置</button>
+                <button id="systemSaveBtn" class="btn sm" type="button">淇濆瓨閰嶇疆</button>
               </div>
             </div>
-            <div class="system-simple-note">只保留常用核心配置，其他参数收纳到高级设置。</div>
+            <div class="system-simple-note">鍙繚鐣欏父鐢ㄦ牳蹇冮厤缃紝鍏朵粬鍙傛暟鏀剁撼鍒伴珮绾ц缃€?/div>
             <div class="system-form-grid system-core-grid">
               <label class="field">
-                <span>系统标题</span>
-                <input id="systemSiteTitle" class="input" placeholder="OPS 运维控制台" />
+                <span>绯荤粺鏍囬</span>
+                <input id="systemSiteTitle" class="input" placeholder="OPS 杩愮淮鎺у埗鍙? />
               </label>
               <label class="field">
-                <span>环境</span>
+                <span>鐜</span>
                 <input id="systemEnvironment" class="input" placeholder="production / staging" />
               </label>
               <label class="field">
-                <span>负责人</span>
+                <span>璐熻矗浜?/span>
                 <input id="systemOwner" class="input" placeholder="platform-team" />
               </label>
               <label class="field">
-                <span>监听地址</span>
+                <span>鐩戝惉鍦板潃</span>
                 <input id="systemListen" class="input" placeholder="0.0.0.0:18082" />
               </label>
             </div>
             <details class="system-advanced">
-              <summary>高级设置（非必要可忽略）</summary>
+              <summary>楂樼骇璁剧疆锛堥潪蹇呰鍙拷鐣ワ級</summary>
               <div class="system-form-grid">
                 <label class="field">
-                  <span>默认Shell</span>
+                  <span>榛樿Shell</span>
                   <input id="systemDefaultShell" class="input" placeholder="sh / powershell / bash" />
                 </label>
                 <label class="field">
-                  <span>默认工作目录</span>
+                  <span>榛樿宸ヤ綔鐩綍</span>
                   <input id="systemDefaultWorkDir" class="input" placeholder="." />
                 </label>
                 <label class="field">
-                  <span>监控刷新秒数</span>
+                  <span>鐩戞帶鍒锋柊绉掓暟</span>
                   <input id="systemRefreshSeconds" class="input" placeholder="5" />
                 </label>
                 <label class="field">
-                  <span>运行日志路径</span>
+                  <span>杩愯鏃ュ織璺緞</span>
                   <input id="systemRuntimeLogPath" class="input" placeholder="logs/ops-console/runtime.log" />
                 </label>
                 <label class="field">
-                  <span>运行日志缓存条数</span>
+                  <span>杩愯鏃ュ織缂撳瓨鏉℃暟</span>
                   <input id="systemRuntimeLogMaxEntries" class="input" placeholder="3000" />
                 </label>
                 <label class="field">
-                  <span>并发任务数</span>
+                  <span>骞跺彂浠诲姟鏁?/span>
                   <input id="systemMaxConcurrentTasks" class="input" placeholder="4" />
                 </label>
                 <label class="field">
-                  <span>清理进度刷新(ms)</span>
+                  <span>娓呯悊杩涘害鍒锋柊(ms)</span>
                   <input id="systemCleanupProgressInterval" class="input" placeholder="300" />
                 </label>
                 <label class="field">
-                  <span>Docker 默认分页</span>
+                  <span>Docker 榛樿鍒嗛〉</span>
                   <input id="systemDockerPageSize" class="input" placeholder="20" />
                 </label>
               </div>
               <div class="system-menu-visibility">
-                <h4>菜单显示控制</h4>
+                <h4>鑿滃崟鏄剧ず鎺у埗</h4>
                 <div id="systemMenuVisibility" class="selector"></div>
               </div>
             </details>
           </article>
           <article class="card">
             <div class="card-head">
-              <h3>系统运行日志</h3>
+              <h3>绯荤粺杩愯鏃ュ織</h3>
               <div class="ops">
-                <input id="runtimeLogKeyword" class="input sm" placeholder="关键字筛选" />
+                <input id="runtimeLogKeyword" class="input sm" placeholder="鍏抽敭瀛楃瓫閫? />
                 <select id="runtimeLogLevel" class="input sm">
-                  <option value="all">全部级别</option>
+                  <option value="all">鍏ㄩ儴绾у埆</option>
                   <option value="info">INFO</option>
                   <option value="warn">WARN</option>
                   <option value="error">ERROR</option>
                   <option value="debug">DEBUG</option>
                 </select>
-                <button id="runtimeLogRefreshBtn" class="btn sm" type="button">刷新</button>
+                <button id="runtimeLogRefreshBtn" class="btn sm" type="button">鍒锋柊</button>
               </div>
             </div>
             <div id="runtimeLogMeta" class="hint">-</div>
@@ -918,13 +895,18 @@
   <div id="modalMask" class="modal-mask hidden">
     <div class="modal">
       <div class="modal-head">
-        <h3 id="modalTitle">详情</h3>
-        <button id="modalCloseBtn" class="btn sm">关闭</button>
+        <h3 id="modalTitle">璇︽儏</h3>
+        <button id="modalCloseBtn" class="btn sm">鍏抽棴</button>
       </div>
       <div id="modalBody" class="modal-body"></div>
     </div>
   </div>
 
-  <script src="/static/app.js?v=20260328-78"></script>
+  <script src="/static/app.js?v=20260403-81"></script>
 </body>
 </html>
+
+
+
+
+

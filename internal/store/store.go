@@ -52,6 +52,18 @@ type CICDRun struct {
 	FinishedAt time.Time `json:"finished_at"`
 }
 
+type AppMeta struct {
+	AppName          string            `json:"app_name"`
+	Description      string            `json:"description"`
+	Owner            string            `json:"owner"`
+	Notes            string            `json:"notes"`
+	Env              map[string]string `json:"env"`
+	LastStartAt      time.Time         `json:"last_start_at"`
+	LastStartStatus  string            `json:"last_start_status"`
+	LastStartMessage string            `json:"last_start_message"`
+	UpdatedAt        time.Time         `json:"updated_at"`
+}
+
 type MonitorTrendSample struct {
 	At           time.Time
 	CPUUsage     float64
@@ -115,6 +127,17 @@ func (s *Store) InitSchema() error {
 			message TEXT NOT NULL DEFAULT '',
 			started_at TEXT NOT NULL,
 			finished_at TEXT
+		)`,
+		`CREATE TABLE IF NOT EXISTS app_meta (
+			app_name TEXT PRIMARY KEY,
+			description TEXT NOT NULL DEFAULT '',
+			owner TEXT NOT NULL DEFAULT '',
+			notes TEXT NOT NULL DEFAULT '',
+			env_json TEXT NOT NULL DEFAULT '{}',
+			last_start_at TEXT NOT NULL DEFAULT '',
+			last_start_status TEXT NOT NULL DEFAULT '',
+			last_start_message TEXT NOT NULL DEFAULT '',
+			updated_at TEXT NOT NULL
 		)`,
 		`CREATE TABLE IF NOT EXISTS monitor_trends (
 			ts_ms INTEGER PRIMARY KEY,
@@ -376,6 +399,160 @@ func parseTime(raw string) time.Time {
 		return time.Time{}
 	}
 	return t
+}
+
+func (s *Store) ListAppMeta() ([]AppMeta, error) {
+	rows, err := s.db.Query(
+		`SELECT app_name, description, owner, notes, env_json, last_start_at, last_start_status, last_start_message, updated_at
+		 FROM app_meta
+		 ORDER BY app_name ASC`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]AppMeta, 0, 64)
+	for rows.Next() {
+		var item AppMeta
+		var envJSON, lastStartAt, updatedAt string
+		if err := rows.Scan(
+			&item.AppName,
+			&item.Description,
+			&item.Owner,
+			&item.Notes,
+			&envJSON,
+			&lastStartAt,
+			&item.LastStartStatus,
+			&item.LastStartMessage,
+			&updatedAt,
+		); err != nil {
+			return nil, err
+		}
+		item.Env = decodeAppMetaEnv(envJSON)
+		item.LastStartAt = parseTime(lastStartAt)
+		item.UpdatedAt = parseTime(updatedAt)
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+func (s *Store) GetAppMeta(name string) (*AppMeta, error) {
+	var item AppMeta
+	var envJSON, lastStartAt, updatedAt string
+	err := s.db.QueryRow(
+		`SELECT app_name, description, owner, notes, env_json, last_start_at, last_start_status, last_start_message, updated_at
+		 FROM app_meta
+		 WHERE app_name = ?`,
+		name,
+	).Scan(
+		&item.AppName,
+		&item.Description,
+		&item.Owner,
+		&item.Notes,
+		&envJSON,
+		&lastStartAt,
+		&item.LastStartStatus,
+		&item.LastStartMessage,
+		&updatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	item.Env = decodeAppMetaEnv(envJSON)
+	item.LastStartAt = parseTime(lastStartAt)
+	item.UpdatedAt = parseTime(updatedAt)
+	return &item, nil
+}
+
+func (s *Store) UpsertAppMeta(meta AppMeta) error {
+	envJSON, err := encodeAppMetaEnv(meta.Env)
+	if err != nil {
+		return err
+	}
+	lastStartAt := ""
+	if !meta.LastStartAt.IsZero() {
+		lastStartAt = meta.LastStartAt.Format(time.RFC3339)
+	}
+	updatedAt := meta.UpdatedAt
+	if updatedAt.IsZero() {
+		updatedAt = time.Now()
+	}
+
+	_, err = s.db.Exec(
+		`INSERT INTO app_meta(
+			app_name, description, owner, notes, env_json, last_start_at, last_start_status, last_start_message, updated_at
+		) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(app_name) DO UPDATE SET
+			description=excluded.description,
+			owner=excluded.owner,
+			notes=excluded.notes,
+			env_json=excluded.env_json,
+			last_start_at=excluded.last_start_at,
+			last_start_status=excluded.last_start_status,
+			last_start_message=excluded.last_start_message,
+			updated_at=excluded.updated_at`,
+		meta.AppName,
+		meta.Description,
+		meta.Owner,
+		meta.Notes,
+		envJSON,
+		lastStartAt,
+		meta.LastStartStatus,
+		meta.LastStartMessage,
+		updatedAt.Format(time.RFC3339),
+	)
+	return err
+}
+
+func (s *Store) UpdateAppStartResult(appName, status, message string, startedAt time.Time) error {
+	if startedAt.IsZero() {
+		startedAt = time.Now()
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO app_meta(
+			app_name, description, owner, notes, env_json, last_start_at, last_start_status, last_start_message, updated_at
+		) VALUES(?, '', '', '', '{}', ?, ?, ?, ?)
+		ON CONFLICT(app_name) DO UPDATE SET
+			last_start_at=excluded.last_start_at,
+			last_start_status=excluded.last_start_status,
+			last_start_message=excluded.last_start_message,
+			updated_at=excluded.updated_at`,
+		appName,
+		startedAt.Format(time.RFC3339),
+		status,
+		message,
+		time.Now().Format(time.RFC3339),
+	)
+	return err
+}
+
+func (s *Store) DeleteAppMeta(name string) error {
+	_, err := s.db.Exec(`DELETE FROM app_meta WHERE app_name = ?`, name)
+	return err
+}
+
+func encodeAppMetaEnv(env map[string]string) (string, error) {
+	if env == nil {
+		env = map[string]string{}
+	}
+	b, err := json.Marshal(env)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+func decodeAppMetaEnv(raw string) map[string]string {
+	trimmed := raw
+	if trimmed == "" {
+		return map[string]string{}
+	}
+	var out map[string]string
+	if err := json.Unmarshal([]byte(trimmed), &out); err != nil || out == nil {
+		return map[string]string{}
+	}
+	return out
 }
 
 func (s *Store) UpsertMonitorTrend(sample MonitorTrendSample) error {
