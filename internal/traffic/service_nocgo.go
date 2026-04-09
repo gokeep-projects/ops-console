@@ -8,9 +8,19 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	netio "github.com/shirou/gopsutil/v3/net"
+	"github.com/shirou/gopsutil/v3/process"
 )
 
-type Manager struct{}
+const (
+	defaultCaptureFilter = "tcp or udp"
+	unsupportedReason    = "当前构建未启用流量抓包能力（需启用 CGO 并安装 Npcap/Win10Pcap），已自动切换为连接态监控"
+)
+
+type Manager struct {
+	hostIPs map[string]struct{}
+}
 
 type InterfaceInfo struct {
 	Name        string   `json:"name"`
@@ -104,47 +114,262 @@ type Snapshot struct {
 }
 
 func NewManager() *Manager {
-	return &Manager{}
+	return &Manager{hostIPs: collectLocalIPSet()}
 }
 
-func (m *Manager) Shutdown() {
-}
+func (m *Manager) Shutdown() {}
 
 func (m *Manager) Interfaces() []InterfaceInfo {
-	return []InterfaceInfo{}
+	return listInterfaces()
 }
 
 func (m *Manager) StartCapture(interfaceName, captureFilter string) error {
-	return fmt.Errorf("当前构建未启用流量抓包能力（需安装 CGO/libpcap）")
+	return fmt.Errorf("当前构建未启用流量抓包能力（需启用 CGO 并安装 Npcap/Win10Pcap）")
 }
 
-func (m *Manager) StopCapture() {
-}
+func (m *Manager) StopCapture() {}
 
 func (m *Manager) Snapshot(limitPackets, limitMessages int) Snapshot {
+	interfaces := m.Interfaces()
+	connections := collectConnectionRows()
 	return Snapshot{
 		Status: CaptureStatus{
 			Supported:         false,
-			InterfacesLoaded:  false,
+			InterfacesLoaded:  len(interfaces) > 0,
 			Active:            false,
 			InterfaceName:     "",
-			CaptureFilter:     "",
+			CaptureFilter:     defaultCaptureFilter,
 			StartedAt:         time.Time{},
-			Error:             "当前构建未启用流量抓包能力（需安装 CGO/libpcap）",
+			Error:             unsupportedReason,
 			PacketCount:       0,
 			HTTPMessageCount:  0,
-			Connections:       0,
-			LocalAddresses:    collectLocalIPList(),
+			Connections:       len(connections),
+			LocalAddresses:    sortedKeys(m.hostIPs),
 			PermissionGranted: false,
 		},
-		Interfaces:  []InterfaceInfo{},
-		Connections: []ConnectionRow{},
+		Interfaces:  interfaces,
+		Connections: connections,
 		Packets:     []PacketEntry{},
 		HTTP:        []HTTPMessage{},
 	}
 }
 
-func collectLocalIPList() []string {
+func listInterfaces() []InterfaceInfo {
+	nics, _ := net.Interfaces()
+	out := make([]InterfaceInfo, 0, len(nics))
+	for _, nic := range nics {
+		addrs := make([]string, 0, 4)
+		items, _ := nic.Addrs()
+		for _, item := range items {
+			addrs = append(addrs, strings.Split(item.String(), "/")[0])
+		}
+		sort.Strings(addrs)
+		out = append(out, InterfaceInfo{
+			Name:        nic.Name,
+			Description: nic.HardwareAddr.String(),
+			Addresses:   addrs,
+			Loopback:    nic.Flags&net.FlagLoopback != 0,
+			Up:          nic.Flags&net.FlagUp != 0,
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		iScore := interfacePriority(out[i])
+		jScore := interfacePriority(out[j])
+		if iScore != jScore {
+			return iScore > jScore
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
+func interfacePriority(item InterfaceInfo) int {
+	score := 0
+	name := strings.ToLower(strings.TrimSpace(item.Name))
+	if isPhysicalInterfaceName(name) {
+		score += 1000
+	}
+	if item.Up {
+		score += 300
+	}
+	if hasRoutableAddress(item.Addresses) {
+		score += 200
+	} else if hasUsableAddress(item.Addresses, item.Loopback) {
+		score += 80
+	}
+	if item.Loopback {
+		score += 120
+	}
+	if isVirtualInterfaceName(name) {
+		score -= 200
+	}
+	return score
+}
+
+func isPhysicalInterfaceName(name string) bool {
+	switch {
+	case strings.HasPrefix(name, "en"),
+		strings.HasPrefix(name, "eth"),
+		strings.HasPrefix(name, "eno"),
+		strings.HasPrefix(name, "ens"),
+		strings.HasPrefix(name, "enp"),
+		strings.HasPrefix(name, "wlan"),
+		strings.HasPrefix(name, "wlp"),
+		strings.HasPrefix(name, "wl"):
+		return true
+	default:
+		return false
+	}
+}
+
+func isVirtualInterfaceName(name string) bool {
+	switch {
+	case strings.HasPrefix(name, "lo"),
+		strings.HasPrefix(name, "bridge"),
+		strings.HasPrefix(name, "docker"),
+		strings.HasPrefix(name, "br-"),
+		strings.HasPrefix(name, "veth"),
+		strings.HasPrefix(name, "utun"),
+		strings.HasPrefix(name, "awdl"),
+		strings.HasPrefix(name, "llw"),
+		strings.HasPrefix(name, "gif"),
+		strings.HasPrefix(name, "stf"),
+		strings.HasPrefix(name, "p2p"),
+		strings.HasPrefix(name, "tap"),
+		strings.HasPrefix(name, "tun"),
+		strings.HasPrefix(name, "vmnet"),
+		strings.HasPrefix(name, "xhc"):
+		return true
+	default:
+		return false
+	}
+}
+
+func hasRoutableAddress(addrs []string) bool {
+	for _, addr := range addrs {
+		ip := net.ParseIP(strings.TrimSpace(addr))
+		if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func hasUsableAddress(addrs []string, loopback bool) bool {
+	for _, addr := range addrs {
+		ip := net.ParseIP(strings.TrimSpace(addr))
+		if ip == nil || ip.IsUnspecified() {
+			continue
+		}
+		if loopback {
+			return true
+		}
+		if !ip.IsLinkLocalUnicast() && !ip.IsLinkLocalMulticast() {
+			return true
+		}
+	}
+	return false
+}
+
+func collectConnectionRows() []ConnectionRow {
+	items, err := netio.Connections("inet")
+	if err != nil {
+		return []ConnectionRow{}
+	}
+	now := time.Now()
+	pidCache := map[int32]procMeta{}
+	rows := make([]ConnectionRow, 0, len(items))
+	for _, item := range items {
+		protocol := protoName(item.Type)
+		if protocol == "" {
+			continue
+		}
+		meta := resolveProcMeta(item.Pid, pidCache)
+		rows = append(rows, ConnectionRow{
+			PID:           item.Pid,
+			ProcessName:   meta.Name,
+			ExePath:       meta.ExePath,
+			Protocol:      protocol,
+			Status:        item.Status,
+			LocalIP:       item.Laddr.IP,
+			LocalPort:     item.Laddr.Port,
+			RemoteIP:      item.Raddr.IP,
+			RemotePort:    item.Raddr.Port,
+			ConnectionKey: connectionKey(protocol, item.Laddr.IP, item.Laddr.Port, item.Raddr.IP, item.Raddr.Port),
+			Connections:   1,
+			BytesIn:       0,
+			BytesOut:      0,
+			PacketsIn:     0,
+			PacketsOut:    0,
+			LastSeen:      now,
+		})
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].ProcessName != rows[j].ProcessName {
+			return rows[i].ProcessName < rows[j].ProcessName
+		}
+		if rows[i].PID != rows[j].PID {
+			return rows[i].PID < rows[j].PID
+		}
+		if rows[i].LocalPort != rows[j].LocalPort {
+			return rows[i].LocalPort < rows[j].LocalPort
+		}
+		return rows[i].RemotePort < rows[j].RemotePort
+	})
+	return rows
+}
+
+type procMeta struct {
+	Name    string
+	ExePath string
+}
+
+func resolveProcMeta(pid int32, cache map[int32]procMeta) procMeta {
+	if item, ok := cache[pid]; ok {
+		return item
+	}
+	meta := procMeta{Name: "-", ExePath: "-"}
+	if pid <= 0 {
+		meta.Name = "内核/系统"
+		cache[pid] = meta
+		return meta
+	}
+	if pid > 0 {
+		if p, err := process.NewProcess(pid); err == nil {
+			name, _ := p.Name()
+			exe, _ := p.Exe()
+			if strings.TrimSpace(name) != "" {
+				meta.Name = name
+			}
+			if strings.TrimSpace(exe) != "" {
+				meta.ExePath = exe
+			}
+		}
+	}
+	if strings.TrimSpace(meta.Name) == "" || meta.Name == "-" {
+		meta.Name = fmt.Sprintf("PID-%d", pid)
+	}
+	cache[pid] = meta
+	return meta
+}
+
+func protoName(typ uint32) string {
+	switch typ {
+	case 1:
+		return "tcp"
+	case 2:
+		return "udp"
+	default:
+		return ""
+	}
+}
+
+func connectionKey(protocol, localIP string, localPort uint32, remoteIP string, remotePort uint32) string {
+	return fmt.Sprintf("%s|%s|%d|%s|%d", strings.ToLower(strings.TrimSpace(protocol)), strings.TrimSpace(localIP), localPort, strings.TrimSpace(remoteIP), remotePort)
+}
+
+func collectLocalIPSet() map[string]struct{} {
 	out := map[string]struct{}{
 		"127.0.0.1": {},
 		"::1":       {},
@@ -160,13 +385,17 @@ func collectLocalIPList() []string {
 			}
 		}
 	}
-	result := make([]string, 0, len(out))
-	for key := range out {
+	return out
+}
+
+func sortedKeys(m map[string]struct{}) []string {
+	out := make([]string, 0, len(m))
+	for key := range m {
 		if strings.TrimSpace(key) == "" {
 			continue
 		}
-		result = append(result, key)
+		out = append(out, key)
 	}
-	sort.Strings(result)
-	return result
+	sort.Strings(out)
+	return out
 }

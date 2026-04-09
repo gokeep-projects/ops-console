@@ -1,0 +1,919 @@
+﻿<div id="bootOverlay" class="boot-overlay">
+    <div class="boot-card">
+      <h2>运维工具初始化中</h2>
+      <p id="bootText">准备加载...</p>
+      <div class="boot-progress">
+        <div id="bootBar" class="boot-bar"></div>
+      </div>
+      <p id="bootPercent" class="boot-percent">0%</p>
+    </div>
+  </div>
+
+  <div id="authOverlay" class="auth-overlay hidden">
+    <div class="auth-card">
+      <h2>登录 OPS 运维平台</h2>
+      <p>请输入配置文件中的账号密码</p>
+      <form id="authLoginForm" class="auth-form" autocomplete="off">
+        <label>
+          <span>用户名</span>
+          <input id="authUsername" class="input" type="text" name="username" autocomplete="username" placeholder="请输入用户名" />
+        </label>
+        <label>
+          <span>密码</span>
+          <input id="authPassword" class="input" type="password" name="password" autocomplete="current-password" placeholder="请输入密码" />
+        </label>
+        <button class="btn" type="submit">登 录</button>
+      </form>
+      <p id="authMessage" class="auth-message info">请输入账号密码登录</p>
+    </div>
+  </div>
+
+  <div class="app-bg"></div>
+  <div id="mainLayout" class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-top">
+        <button
+          id="sidebarToggleBtn"
+          class="btn sm sidebar-toggle-btn"
+          type="button"
+          title="收起系统菜单"
+          aria-label="收起系统菜单"
+          aria-expanded="true"
+          data-collapsed="false"
+        >
+          <span class="sidebar-toggle-icon" aria-hidden="true"></span>
+          <span class="sr-only sidebar-toggle-text">收起系统菜单</span>
+        </button>
+        <button
+          id="sidebarExpandBtn"
+          class="btn sm sidebar-expand-btn"
+          type="button"
+          title="展开系统菜单"
+          aria-label="展开系统菜单"
+          aria-expanded="false"
+          data-collapsed="true"
+        >
+          <span class="sidebar-toggle-icon" aria-hidden="true"></span>
+          <span class="sr-only sidebar-expand-text">展开</span>
+        </button>
+      </div>
+      <button class="menu active" type="button" data-section="monitor" title="系统监控" aria-label="系统监控">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none">
+            <path d="M3 12.5h10" />
+            <path d="M4.5 10 6.8 7.7l2 1.8L12 5.8" />
+          </svg>
+        </span>
+        <span class="menu-label">系统监控</span>
+      </button>
+      <button class="menu" type="button" data-section="logs" title="日志分析" aria-label="日志分析">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none">
+            <path d="M4 3.5h8a1 1 0 0 1 1 1v7.5l-2-1.4-2 1.4-2-1.4-2 1.4-2-1.4V4.5a1 1 0 0 1 1-1Z" />
+            <path d="M5.5 6.25h5" />
+            <path d="M5.5 8.25h4" />
+          </svg>
+        </span>
+        <span class="menu-label">日志分析</span>
+      </button>
+      <button class="menu" type="button" data-section="traffic" title="进程流量" aria-label="进程流量">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none">
+            <path d="M2.5 12.5h2.2l1.4-3.1 2.1 1.9 2.4-5.3 1.4 2h1.5" />
+            <path d="M2.5 4.5h3" />
+            <path d="M10.5 4.5h3" />
+          </svg>
+        </span>
+        <span class="menu-label">进程流量</span>
+      </button>
+      <button class="menu" type="button" data-section="traffic-capture" title="数据包抓包" aria-label="数据包抓包">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none">
+            <rect x="2.5" y="3" width="11" height="8.5" rx="1.5" />
+            <path d="M5 6h6" />
+            <path d="M5 8.5h4.5" />
+            <path d="M6.5 13h3" />
+          </svg>
+        </span>
+        <span class="menu-label">数据包抓包</span>
+      </button>
+      <button class="menu" type="button" data-section="repair" title="修复工具" aria-label="修复工具">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none">
+            <path d="m9.2 3.5 3.3 3.3" />
+            <path d="M10.1 2.6a2.2 2.2 0 0 1 2.8 2.8l-5.7 5.7-2.9.5.5-2.9 5.3-5.3Z" />
+            <path d="m8.3 4.4 3.3 3.3" />
+          </svg>
+        </span>
+        <span class="menu-label">修复工具</span>
+      </button>
+      <button class="menu" type="button" data-section="backup" title="数据备份" aria-label="数据备份">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none">
+            <path d="M3.5 4.5h9v7h-9z" />
+            <path d="M5 4.5V3.8a.8.8 0 0 1 .8-.8h4.4a.8.8 0 0 1 .8.8v.7" />
+            <path d="M5.5 8h5" />
+            <path d="M8 8v2.5" />
+          </svg>
+        </span>
+        <span class="menu-label">数据备份</span>
+      </button>
+      <button class="menu" type="button" data-section="cleanup" title="数据清理" aria-label="数据清理">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none">
+            <path d="M3.5 4h9" />
+            <path d="M5.5 4V3a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1" />
+            <path d="M4.5 4.5l.6 8a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-8" />
+            <path d="M6.7 7v4.2" />
+            <path d="M9.3 7v4.2" />
+          </svg>
+        </span>
+        <span class="menu-label">数据清理</span>
+      </button>
+      <button class="menu" type="button" data-section="docker" title="Docker管理" aria-label="Docker管理">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none">
+            <rect x="2.5" y="6.5" width="3" height="3" />
+            <rect x="6.5" y="6.5" width="3" height="3" />
+            <rect x="10.5" y="6.5" width="3" height="3" />
+            <rect x="4.5" y="2.5" width="3" height="3" />
+            <path d="M2.2 10.5h11.6c0 1.7-1.3 3-3 3H5.2c-1.7 0-3-1.3-3-3Z" />
+          </svg>
+        </span>
+        <span class="menu-label">Docker管理</span>
+      </button>
+      <button class="menu" type="button" data-section="remote-control" title="远程控制" aria-label="远程控制">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none">
+            <rect x="2.5" y="3.2" width="11" height="7.8" rx="1.2" />
+            <path d="M5.5 12.8h5" />
+            <path d="m6.2 6.3-1.6 1.6 1.6 1.6" />
+            <path d="m9.8 6.3 1.6 1.6-1.6 1.6" />
+          </svg>
+        </span>
+        <span class="menu-label">远程控制</span>
+      </button>
+      <button class="menu" type="button" data-section="system" title="系统管理" aria-label="系统管理">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none">
+            <circle cx="8" cy="8" r="2.2" />
+            <path d="M8 1.8v2" />
+            <path d="M8 12.2v2" />
+            <path d="m13 3 1.4 1.4" />
+            <path d="m1.6 11.6 1.4 1.4" />
+            <path d="M14.2 8h-2" />
+            <path d="M3.8 8h-2" />
+            <path d="m13 13-1.4-1.4" />
+            <path d="M3 3 4.4 4.4" />
+          </svg>
+        </span>
+        <span class="menu-label">系统管理</span>
+      </button>
+    </aside>
+
+    <main class="content">
+      <section id="monitor" class="panel visible">
+        <article class="card system-info-card">
+          <div class="card-head">
+            <h3>系统信息</h3>
+            <div class="ops">
+              <button id="openSystemInfoModalBtn" class="btn sm" type="button">查看系统详情</button>
+              <button id="monitorRefreshBtn" class="btn sm">实时状态下载</button>
+              <button id="monitorToggleBtn" class="btn sm danger">停止监控</button>
+            </div>
+          </div>
+          <div id="systemInfoQuick" class="system-info-quick">-</div>
+        </article>
+
+        <div class="grid cards-5 monitor-kpi-grid">
+          <article class="card metric-card cpu">
+            <div class="kpi-head">
+              <h3>CPU</h3>
+              <span class="kpi-tag">实时</span>
+            </div>
+            <p id="cpuUsage" class="metric">-</p>
+            <small id="cpuCore" class="metric-sub">-</small>
+            <div class="meter"><span id="cpuBar"></span></div>
+            <div class="trend-row">
+              <div
+                id="trendMiniCpu"
+                class="mini-trend trend-open-target"
+                data-trend-key="cpu"
+                data-hint="点击放大"
+                role="button"
+                tabindex="0"
+                title="点击放大查看 24 小时趋势"
+              ></div>
+            </div>
+            <small id="trendInfoCpu" class="trend-meta">-</small>
+          </article>
+
+          <article class="card metric-card memory">
+            <div class="kpi-head">
+              <h3>内存</h3>
+              <span class="kpi-tag">实时</span>
+            </div>
+            <p id="memUsage" class="metric">-</p>
+            <small id="memDetail" class="metric-sub">-</small>
+            <div class="meter"><span id="memBar"></span></div>
+            <div class="trend-row">
+              <div
+                id="trendMiniMemory"
+                class="mini-trend trend-open-target"
+                data-trend-key="memory"
+                data-hint="点击放大"
+                role="button"
+                tabindex="0"
+                title="点击放大查看 24 小时趋势"
+              ></div>
+            </div>
+            <small id="trendInfoMemory" class="trend-meta">-</small>
+          </article>
+
+          <article class="card metric-card network">
+            <div class="kpi-head">
+              <h3>网络流量</h3>
+              <span class="kpi-tag">实时</span>
+            </div>
+            <p id="netTraffic" class="metric">-</p>
+            <small id="netPackets" class="metric-sub">-</small>
+            <div class="trend-row">
+              <div
+                id="trendMiniNetwork"
+                class="mini-trend trend-open-target"
+                data-trend-key="network"
+                data-hint="点击放大"
+                role="button"
+                tabindex="0"
+                title="点击放大查看 24 小时趋势"
+              ></div>
+            </div>
+            <small id="trendInfoNetwork" class="trend-meta">-</small>
+          </article>
+
+          <article class="card metric-card process">
+            <div class="kpi-head">
+              <h3>总进程数</h3>
+              <span class="kpi-tag">全局</span>
+            </div>
+            <p id="processCount" class="metric">-</p>
+            <small id="osInfo" class="metric-sub">-</small>
+            <div class="trend-row">
+              <div
+                id="trendMiniProcess"
+                class="mini-trend trend-open-target"
+                data-trend-key="process"
+                data-hint="点击放大"
+                role="button"
+                tabindex="0"
+                title="点击放大查看 24 小时趋势"
+              ></div>
+            </div>
+            <small id="trendInfoProcess" class="trend-meta">-</small>
+          </article>
+
+          <article class="card metric-card diskio">
+            <div class="kpi-head">
+              <h3>磁盘 IO</h3>
+              <span class="kpi-tag">实时</span>
+            </div>
+            <p id="diskIoFlow" class="metric">-</p>
+            <small id="diskIoOps" class="metric-sub">-</small>
+            <div class="trend-row">
+              <div
+                id="trendMiniDiskIO"
+                class="mini-trend trend-open-target"
+                data-trend-key="diskio"
+                data-hint="点击放大"
+                role="button"
+                tabindex="0"
+                title="点击放大查看 24 小时趋势"
+              ></div>
+            </div>
+            <small id="trendInfoDiskIO" class="trend-meta">-</small>
+          </article>
+        </div>
+
+        <div class="grid cards-2">
+          <article class="card">
+          <div class="card-head">
+            <h3>磁盘状态</h3>
+            <div class="ops">
+                <small id="diskIoSummary">-</small>
+                <button id="openDiskMetaModalBtn" class="btn sm" type="button">硬件汇总</button>
+              </div>
+            </div>
+            <div id="diskVolumeChart" class="disk-volume-chart"></div>
+            <div id="diskList" class="table"></div>
+          </article>
+
+          <article class="card">
+            <div class="card-head">
+              <h3>监听端口</h3>
+              <div class="ops">
+                <input id="portSearch" class="input" placeholder="搜索进程名 / 端口 / PID / 路径" />
+                <button id="openPortModalBtn" class="btn sm">查看详情</button>
+              </div>
+            </div>
+            <div id="portList" class="table"></div>
+          </article>
+        </div>
+
+        <div class="grid cards-2">
+          <article class="card service-status-card">
+            <div class="card-head">
+              <h3>流量监控</h3>
+              <div class="ops flow-monitor-ops">
+                <button id="flowMonitorViewAllBtn" class="btn sm" type="button">详情</button>
+              </div>
+            </div>
+            <div id="flowMonitorList" class="table"></div>
+          </article>
+
+          <article class="card process-top-card">
+            <div class="card-head">
+              <h3>进程排行 / JVM</h3>
+              <div class="ops">
+                <input id="processSearch" class="input" placeholder="搜索进程名 / 路径 / PID" />
+              </div>
+            </div>
+            <div id="topProcessList" class="table"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="logs" class="panel">
+        <div class="panel-head panel-head-right">
+          <div class="ops log-source-ops">
+            <button id="logAddCardBtn" class="btn sm">添加日志源</button>
+            <select id="logSourceSelect" class="input"></select>
+            <button id="logDeleteCardBtn" class="btn sm danger" type="button">删除当前</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="row">
+            <input id="logKeyword" class="input" placeholder="关键字（全文检索）" />
+            <select id="logLevel" class="input">
+              <option value="all">全部</option>
+              <option value="info">信息</option>
+              <option value="error">错误</option>
+            </select>
+            <select id="logRule" class="input">
+              <option value="">常见问题规则</option>
+            </select>
+            <input id="logLimit" class="input sm" value="300" />
+            <button id="logQueryBtn" class="btn">查询</button>
+            <button id="logErrorBtn" class="btn">仅错误</button>
+            <button id="logExportBtn" class="btn">导出</button>
+          </div>
+          <p id="logCurrentApp" class="hint">当前日志源：</p>
+          <div id="logFileSelector" class="selector"></div>
+          <div id="logStats" class="log-stats-grid"></div>
+          <div id="logResult" class="log-view"></div>
+        </div>
+      </section>
+
+      <section id="traffic" class="panel traffic-panel">
+        <article class="card traffic-hero-card">
+          <div class="card-head">
+            <h3>进程 / 连接流量</h3>
+            <div class="ops">
+              <button id="trafficRefreshBtn" class="btn sm" type="button">刷新</button>
+            </div>
+          </div>
+          <p data-traffic-status-summary class="hint">正在加载流量分析状态...</p>
+          <div class="traffic-kpi-grid">
+            <div class="traffic-kpi-card">
+              <span>连接数</span>
+              <strong data-traffic-kpi="connections">0</strong>
+            </div>
+            <div class="traffic-kpi-card">
+              <span>已捕获数据包</span>
+              <strong data-traffic-kpi="packets">0</strong>
+            </div>
+            <div class="traffic-kpi-card">
+              <span>HTTP 明文</span>
+              <strong data-traffic-kpi="http">0</strong>
+            </div>
+            <div class="traffic-kpi-card">
+              <span>抓包接口</span>
+              <strong data-traffic-kpi="interface">-</strong>
+            </div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="card-head">
+            <h3>进程 / 连接流量排行</h3>
+            <div class="ops">
+              <input id="trafficConnectionSearch" class="input sm" placeholder="搜索进程 / PID / 端口 / IP" />
+            </div>
+          </div>
+          <div id="trafficConnectionTable" class="table"></div>
+        </article>
+      </section>
+
+      <section id="traffic-capture" class="panel traffic-panel">
+        <article class="card traffic-hero-card">
+          <div class="card-head">
+            <h3>数据包抓包（Wireshark 风格）</h3>
+            <div class="ops traffic-capture-ops">
+              <select id="trafficInterface" class="input"></select>
+              <select id="trafficBuiltinFilter" class="input sm">
+                <option value="ip or ip6 or arp">全部流量</option>
+                <option value="tcp">仅 TCP</option>
+                <option value="udp">仅 UDP</option>
+                <option value="tcp port 80 or tcp port 8080 or tcp port 8000 or tcp port 8888">HTTP 常见端口</option>
+                <option value="tcp port 443">HTTPS/TLS</option>
+                <option value="udp port 53 or tcp port 53">DNS</option>
+              </select>
+              <input id="trafficCustomFilter" class="input" placeholder="自定义抓包过滤（BPF），例如 tcp and port 443" />
+              <button id="trafficStartBtn" class="btn sm" type="button">开始抓包</button>
+              <button id="trafficStopBtn" class="btn sm danger" type="button">停止抓包</button>
+              <button id="trafficCaptureRefreshBtn" class="btn sm" type="button">刷新</button>
+            </div>
+          </div>
+          <p data-traffic-status-summary class="hint">正在加载抓包状态...</p>
+          <div class="traffic-kpi-grid">
+            <div class="traffic-kpi-card">
+              <span>连接数</span>
+              <strong data-traffic-kpi="connections">0</strong>
+            </div>
+            <div class="traffic-kpi-card">
+              <span>已捕获数据包</span>
+              <strong data-traffic-kpi="packets">0</strong>
+            </div>
+            <div class="traffic-kpi-card">
+              <span>HTTP 明文</span>
+              <strong data-traffic-kpi="http">0</strong>
+            </div>
+            <div class="traffic-kpi-card">
+              <span>抓包接口</span>
+              <strong data-traffic-kpi="interface">-</strong>
+            </div>
+          </div>
+          <p class="hint">默认展示数据包列表；支持内置过滤和自定义过滤。右键数据包可切换解码方式。</p>
+        </article>
+
+        <article class="card traffic-filter-card">
+          <div class="row">
+            <select id="trafficDisplayPreset" class="input sm">
+              <option value="all">显示全部</option>
+              <option value="tcp">显示 TCP</option>
+              <option value="udp">显示 UDP</option>
+              <option value="http">显示 HTTP</option>
+              <option value="https">显示 HTTPS/TLS</option>
+              <option value="dns">显示 DNS</option>
+            </select>
+            <input id="trafficDisplayFilter" class="input" placeholder="自定义显示过滤：proto:tcp src:10.0.0.8 dst:1.1.1.1 port:443 len>200 contains:login" />
+            <button id="trafficApplyFilterBtn" class="btn sm" type="button">应用过滤</button>
+            <button id="trafficClearFilterBtn" class="btn sm" type="button">清空过滤</button>
+          </div>
+        </article>
+
+        <article class="card traffic-packet-card">
+          <div class="card-head">
+            <h3>数据包列表</h3>
+            <div class="ops">
+              <span id="trafficPacketHint" class="hint">右键任意行可切换解码</span>
+            </div>
+          </div>
+          <div id="trafficPacketTable" class="table traffic-packet-table"></div>
+        </article>
+
+        <article class="card traffic-detail-card">
+          <div class="card-head">
+            <h3>数据包详情</h3>
+            <div class="ops">
+              <span id="trafficPacketDetailTitle" class="hint">未选择数据包</span>
+            </div>
+          </div>
+          <div id="trafficPacketDetailMeta" class="table"></div>
+          <pre id="trafficPacketDetailBody" class="log-view compact">请选择上方数据包查看详情</pre>
+        </article>
+
+        <div id="trafficPacketContextMenu" class="traffic-context-menu hidden">
+          <button type="button" data-decode-mode="auto">自动解码</button>
+          <button type="button" data-decode-mode="http">按 HTTP 尝试解码</button>
+          <button type="button" data-decode-mode="ascii">按 ASCII 文本</button>
+          <button type="button" data-decode-mode="hex">按 HEX 视图</button>
+        </div>
+      </section>
+
+      <section id="repair" class="panel repair-panel">
+        <div class="repair-hero">
+          <div>
+            <p>上传脚本、定义参数并执行，执行日志与历史记录集中展示。</p>
+          </div>
+          <span class="repair-badge">脚本执行</span>
+        </div>
+
+        <div class="repair-grid">
+          <article class="card repair-card upload-card">
+            <div class="repair-card-head">
+              <h3>上传脚本</h3>
+              <small>支持 ps1 / sh / bat / cmd</small>
+            </div>
+            <form id="uploadScriptForm" class="repair-form">
+              <label class="field">
+                <span>脚本文件</span>
+                <input type="file" name="file" class="input" required />
+              </label>
+              <label class="field">
+                <span>脚本名称</span>
+                <input name="name" class="input" placeholder="例如：修复 nginx 配置" />
+              </label>
+              <label class="field">
+                <span>运行 Shell</span>
+                <input name="shell" class="input" placeholder="powershell / sh / cmd" />
+              </label>
+              <label class="field">
+                <span>默认参数</span>
+                <input name="parameters" class="input" placeholder="例如：-env prod,-force true" />
+              </label>
+              <label class="field field-full">
+                <span>脚本描述</span>
+                <input name="description" class="input" placeholder="记录用途、风险和适用场景" />
+              </label>
+              <button class="btn repair-submit" type="submit">上传脚本</button>
+            </form>
+          </article>
+
+          <article class="card repair-card run-card">
+            <div class="repair-card-head">
+              <h3>执行脚本</h3>
+              <small>实时输出 / 可追溯</small>
+            </div>
+            <div class="run-toolbar">
+              <select id="scriptName" class="input"></select>
+              <input id="scriptArgs" class="input" placeholder="执行参数，例如：-host 127.0.0.1 -mode safe" />
+              <button id="runScriptBtn" class="btn">执行</button>
+            </div>
+            <pre id="scriptOutput" class="log-view compact repair-output"></pre>
+          </article>
+        </div>
+
+        <div class="repair-bottom-grid">
+          <article class="card repair-card library-card">
+            <div class="repair-card-head">
+              <h3>脚本库</h3>
+              <small>已注册脚本</small>
+            </div>
+            <div id="scriptLibrary" class="script-library"></div>
+          </article>
+
+          <article class="card repair-card">
+            <div class="repair-card-head">
+              <h3>执行历史</h3>
+              <small>最近运行记录</small>
+            </div>
+            <div id="scriptRunHistory" class="table"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="backup" class="panel">
+        <article class="card">
+          <div class="row">
+            <select id="backupType" class="input">
+              <option value="files">重要文件备份</option>
+              <option value="database">数据库备份</option>
+              <option value="es">ES 备份</option>
+            </select>
+            <input id="backupName" class="input" placeholder="备份名称（可选）" />
+            <button id="runBackupBtn" class="btn">开始备份</button>
+          </div>
+          <div class="row">
+            <input id="backupTarget" class="input" placeholder="备份目录（可选，支持修改存储路径）" />
+            <button id="backupSelectTargetBtn" class="btn sm" type="button">选择备份目标</button>
+            <button id="backupCreateTargetBtn" class="btn sm" type="button">新建目录</button>
+          </div>
+          <div class="row">
+            <div id="backupSourceSummary" class="backup-source-summary">未选择备份源，默认使用配置文件中的源目录</div>
+            <button id="backupSelectSourceBtn" class="btn sm" type="button">选择备份源目录</button>
+          </div>
+          <div id="backupSourceList" class="selector backup-source-list"></div>
+          <p class="hint">数据库和 ES 备份命令来源于配置文件 `backup.databases / backup.es`。</p>
+        </article>
+        <article class="card">
+          <h3>备份文件列表</h3>
+          <div id="backupList" class="table"></div>
+        </article>
+      </section>
+
+      <section id="cleanup" class="panel cleanup-panel">
+        <article class="card cleanup-toolbar-card">
+          <div class="cleanup-toolbar">
+            <div class="cleanup-toolbar-title">
+              <h3>数据清理 / 空间分析</h3>
+              <span id="cleanupIndexerTag" class="cleanup-indexer-tag">内置扫描引擎</span>
+            </div>
+            <div class="cleanup-toolbar-ops">
+              <button id="cleanupLoadRootsBtn" class="btn sm" type="button">刷新分区</button>
+              <button id="cleanupOpenTreeBtn" class="btn sm" type="button">从目录树选择</button>
+              <button id="cleanupScanBtn" class="btn sm" type="button">开始扫描</button>
+              <button id="cleanupStopScanBtn" class="btn sm danger" type="button" disabled>停止扫描</button>
+            </div>
+          </div>
+          <div class="cleanup-filter-row">
+            <div id="cleanupRootOptions" class="selector cleanup-root-options"></div>
+          </div>
+          <div class="cleanup-filter-row">
+            <input id="cleanupCustomRoot" class="input" placeholder="自定义扫描目录（绝对路径），例如 D:\data 或 /data/logs" />
+            <button id="cleanupAddRootBtn" class="btn sm" type="button">添加目录</button>
+          </div>
+          <div id="cleanupCustomRootList" class="selector cleanup-custom-roots"></div>
+          <div class="cleanup-filter-row compact">
+            <input id="cleanupSearch" class="input" placeholder="模糊搜索：文件名 / 路径 / 文件类型" />
+            <input id="cleanupLargeThresholdGB" class="input sm" value="1" />
+            <button id="cleanupApplyFilterBtn" class="btn sm" type="button">应用筛选</button>
+          </div>
+          <div class="scan-progress-card">
+            <div class="scan-progress-track">
+              <span id="cleanupScanProgressBar" class="scan-progress-bar"></span>
+            </div>
+            <div id="cleanupScanProgressText" class="scan-progress-text">等待开始</div>
+          </div>
+          <div class="cleanup-kpi-grid">
+            <div class="cleanup-kpi-card">
+              <div class="cleanup-kpi-label">已扫描文件</div>
+              <div id="cleanupKpiScanned" class="cleanup-kpi-value">0</div>
+            </div>
+            <div class="cleanup-kpi-card">
+              <div class="cleanup-kpi-label">当前命中</div>
+              <div id="cleanupKpiMatched" class="cleanup-kpi-value">0</div>
+            </div>
+            <div class="cleanup-kpi-card">
+              <div class="cleanup-kpi-label">命中总大小</div>
+              <div id="cleanupKpiSize" class="cleanup-kpi-value">0 B</div>
+            </div>
+            <div class="cleanup-kpi-card">
+              <div class="cleanup-kpi-label">大文件数量</div>
+              <div id="cleanupKpiLarge" class="cleanup-kpi-value">0</div>
+            </div>
+          </div>
+          <p id="cleanupSummary" class="hint">未开始扫描</p>
+        </article>
+
+        <div class="cleanup-main-grid">
+          <article class="card cleanup-card-main">
+            <div class="card-head">
+              <h3>体积热区（WizTree 风格）</h3>
+            </div>
+            <div id="cleanupTopBars" class="cleanup-bars-view"></div>
+            <div id="cleanupFileList" class="table"></div>
+          </article>
+          <div class="cleanup-side-column">
+            <article class="card">
+              <div class="card-head">
+                <h3>大文件（按大小降序）</h3>
+              </div>
+              <div id="cleanupLargeFileList" class="table"></div>
+            </article>
+            <article class="card">
+              <div class="card-head">
+                <h3>目录占用排行</h3>
+              </div>
+              <div id="cleanupDirChart" class="cleanup-mini-chart"></div>
+              <div id="cleanupDirSummaryList" class="table"></div>
+            </article>
+            <article class="card">
+              <div class="card-head">
+                <h3>文件类型分布</h3>
+              </div>
+              <div id="cleanupTypeChart" class="cleanup-mini-chart"></div>
+              <div id="cleanupTypeSummaryList" class="table"></div>
+            </article>
+          </div>
+        </div>
+
+        <article class="card cleanup-garbage-card">
+          <div class="card-head">
+            <h3>垃圾清理（安全模式）</h3>
+            <div class="ops">
+              <button id="cleanupPreviewBtn" class="btn sm" type="button">预估可清理</button>
+              <button id="cleanupRunBtn" class="btn sm danger" type="button">执行清理</button>
+              <button id="cleanupStopGarbageBtn" class="btn sm" type="button" disabled>停止清理</button>
+            </div>
+          </div>
+          <p class="hint">仅清理缓存 / 临时 / 日志类旧文件，并保留近期文件，避免影响系统运行。</p>
+          <div id="cleanupGarbageTargets" class="selector"></div>
+          <p id="cleanupGarbageSummary" class="hint">未开始清理</p>
+          <div id="cleanupGarbageResult" class="table"></div>
+        </article>
+      </section>
+
+      <section id="docker" class="panel docker-panel">
+        <article class="card docker-hero-card">
+          <div class="docker-hero-head">
+            <div>
+              <h3>Docker 管理中心</h3>
+              <p id="dockerStatusSummary" class="hint docker-status-summary">未加载 Docker 状态</p>
+            </div>
+            <div class="docker-hero-badge">Container Ops</div>
+          </div>
+          <div class="docker-kpi-grid">
+            <div class="docker-kpi-card total">
+              <span>容器总数</span>
+              <strong id="dockerKpiTotal">0</strong>
+            </div>
+            <div class="docker-kpi-card running">
+              <span>运行中</span>
+              <strong id="dockerKpiRunning">0</strong>
+            </div>
+            <div class="docker-kpi-card stopped">
+              <span>已停止</span>
+              <strong id="dockerKpiStopped">0</strong>
+            </div>
+            <div class="docker-kpi-card image">
+              <span>镜像数量</span>
+              <strong id="dockerKpiImages">0</strong>
+            </div>
+          </div>
+        </article>
+
+        <article class="card docker-table-card">
+          <div class="card-head">
+            <h3>Docker 资产管理</h3>
+            <div class="ops">
+              <input id="dockerSearch" class="input" placeholder="搜索容器名 / 镜像 / ID / 状态" />
+              <select id="dockerScope" class="input sm">
+                <option value="all">全部容器</option>
+                <option value="running">仅运行中</option>
+              </select>
+              <button id="dockerRefreshBtn" class="btn sm" type="button">刷新容器</button>
+            </div>
+          </div>
+          <div class="docker-tabs">
+            <button id="dockerTabContainers" class="btn sm active" type="button">容器</button>
+            <button id="dockerTabImages" class="btn sm" type="button">镜像</button>
+          </div>
+          <div id="dockerBatchActions" class="docker-batch-actions">
+            <select id="dockerBatchActionType" class="input sm" aria-label="批量操作类型"></select>
+            <button id="dockerBatchApplyBtn" class="btn sm" type="button">执行批量操作</button>
+            <span class="hint">先勾选要操作的行，再执行</span>
+          </div>
+          <div class="docker-pagination">
+            <div class="docker-pagination-left">
+              <button id="dockerPrevBtn" class="btn sm" type="button">上一页</button>
+              <button id="dockerNextBtn" class="btn sm" type="button">下一页</button>
+              <span id="dockerPageInfo" class="docker-pagination-info">0 / 0</span>
+              <span id="dockerTotalInfo" class="docker-pagination-total">共 0 个容器</span>
+            </div>
+            <div class="docker-pagination-right">
+              <label for="dockerPageSize">每页</label>
+              <select id="dockerPageSize" class="input sm">
+                <option value="10">10</option>
+                <option value="20" selected>20</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </div>
+          </div>
+          <div id="dockerContainerTable" class="table"></div>
+          <div id="dockerImageTable" class="table hidden"></div>
+        </article>
+      </section>
+
+      <section id="remote-control" class="panel remote-panel">
+        <article class="card remote-card">
+          <div class="card-head">
+            <h3>远程桌面控制</h3>
+            <div class="ops remote-ops">
+              <select id="remoteFps" class="input sm">
+                <option value="5">5 FPS</option>
+                <option value="8" selected>8 FPS</option>
+                <option value="12">12 FPS</option>
+                <option value="15">15 FPS</option>
+              </select>
+              <select id="remoteQuality" class="input sm">
+                <option value="45">清晰度 45%</option>
+                <option value="60" selected>清晰度 60%</option>
+                <option value="75">清晰度 75%</option>
+                <option value="85">清晰度 85%</option>
+              </select>
+              <select id="remoteScale" class="input sm">
+                <option value="0.5">分辨率 50%</option>
+                <option value="0.75" selected>分辨率 75%</option>
+                <option value="1">分辨率 100%</option>
+              </select>
+              <button id="remoteConnectBtn" class="btn sm" type="button">连接桌面</button>
+              <button id="remoteDisconnectBtn" class="btn sm danger" type="button" disabled>断开</button>
+              <button id="remoteFullscreenBtn" class="btn sm" type="button">全屏</button>
+            </div>
+          </div>
+          <div class="remote-status-row">
+            <span id="remoteStatusBadge" class="badge unknown">未连接</span>
+            <span id="remoteStatusText" class="hint">等待连接</span>
+            <span class="hint">鼠标点击/拖动/滚轮和键盘按键会直接控制服务器桌面。</span>
+          </div>
+          <div id="remoteDesktopWrap" class="remote-desktop-wrap">
+            <canvas id="remoteDesktopCanvas" class="remote-desktop-canvas" width="1280" height="720" tabindex="0"></canvas>
+            <div id="remoteDesktopOverlay" class="remote-desktop-overlay">点击“连接桌面”开始远程控制</div>
+          </div>
+        </article>
+      </section>
+
+      <section id="system" class="panel system-panel">
+        <div class="grid cards-2">
+          <article class="card">
+            <div class="card-head">
+              <h3>系统管理 / 全局配置</h3>
+              <div class="ops">
+                <button id="systemSaveBtn" class="btn sm" type="button">保存配置</button>
+              </div>
+            </div>
+            <div class="system-simple-note">只保留常用核心配置，其他参数收纳到高级设置。</div>
+            <div class="system-form-grid system-core-grid">
+              <label class="field">
+                <span>系统标题</span>
+                <input id="systemSiteTitle" class="input" placeholder="OPS 运维控制台" />
+              </label>
+              <label class="field">
+                <span>环境</span>
+                <input id="systemEnvironment" class="input" placeholder="production / staging" />
+              </label>
+              <label class="field">
+                <span>负责人</span>
+                <input id="systemOwner" class="input" placeholder="platform-team" />
+              </label>
+              <label class="field">
+                <span>监听地址</span>
+                <input id="systemListen" class="input" placeholder="0.0.0.0:18082" />
+              </label>
+            </div>
+            <details class="system-advanced">
+              <summary>高级设置（非必要可忽略）</summary>
+              <div class="system-form-grid">
+                <label class="field">
+                  <span>默认Shell</span>
+                  <input id="systemDefaultShell" class="input" placeholder="sh / powershell / bash" />
+                </label>
+                <label class="field">
+                  <span>默认工作目录</span>
+                  <input id="systemDefaultWorkDir" class="input" placeholder="." />
+                </label>
+                <label class="field">
+                  <span>监控刷新秒数</span>
+                  <input id="systemRefreshSeconds" class="input" placeholder="5" />
+                </label>
+                <label class="field">
+                  <span>运行日志路径</span>
+                  <input id="systemRuntimeLogPath" class="input" placeholder="logs/ops-console/runtime.log" />
+                </label>
+                <label class="field">
+                  <span>运行日志缓存条数</span>
+                  <input id="systemRuntimeLogMaxEntries" class="input" placeholder="3000" />
+                </label>
+                <label class="field">
+                  <span>并发任务数</span>
+                  <input id="systemMaxConcurrentTasks" class="input" placeholder="4" />
+                </label>
+                <label class="field">
+                  <span>清理进度刷新(ms)</span>
+                  <input id="systemCleanupProgressInterval" class="input" placeholder="300" />
+                </label>
+                <label class="field">
+                  <span>Docker 默认分页</span>
+                  <input id="systemDockerPageSize" class="input" placeholder="20" />
+                </label>
+              </div>
+              <div class="system-menu-visibility">
+                <h4>菜单显示控制</h4>
+                <div id="systemMenuVisibility" class="selector"></div>
+              </div>
+            </details>
+          </article>
+          <article class="card">
+            <div class="card-head">
+              <h3>系统运行日志</h3>
+              <div class="ops">
+                <input id="runtimeLogKeyword" class="input sm" placeholder="关键字筛选" />
+                <select id="runtimeLogLevel" class="input sm">
+                  <option value="all">全部级别</option>
+                  <option value="info">INFO</option>
+                  <option value="warn">WARN</option>
+                  <option value="error">ERROR</option>
+                  <option value="debug">DEBUG</option>
+                </select>
+                <button id="runtimeLogRefreshBtn" class="btn sm" type="button">刷新</button>
+              </div>
+            </div>
+            <div id="runtimeLogMeta" class="hint">-</div>
+            <div id="runtimeLogList" class="runtime-log-list"></div>
+          </article>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="modalMask" class="modal-mask hidden">
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="modalTitle">详情</h3>
+        <button id="modalCloseBtn" class="btn sm">关闭</button>
+      </div>
+      <div id="modalBody" class="modal-body"></div>
+    </div>
+  </div>

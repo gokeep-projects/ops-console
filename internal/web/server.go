@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,7 +11,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,6 +33,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/gorilla/websocket"
+	"github.com/shirou/gopsutil/v3/process"
 )
 
 type Server struct {
@@ -226,6 +231,15 @@ func (s *Server) routes() *chi.Mux {
 		pr.Get("/api/traffic/interfaces", s.handleTrafficInterfaces)
 		pr.Post("/api/traffic/capture/start", s.handleTrafficCaptureStart)
 		pr.Post("/api/traffic/capture/stop", s.handleTrafficCaptureStop)
+
+		pr.Get("/api/cicd/pipelines", s.handleCICDPipelines)
+		pr.Post("/api/cicd/pipelines", s.handleCICDPipelineCreate)
+		pr.Put("/api/cicd/pipelines/{id}", s.handleCICDPipelineUpdate)
+		pr.Delete("/api/cicd/pipelines/{id}", s.handleCICDPipelineDelete)
+		pr.Post("/api/cicd/pipelines/{id}/run", s.handleCICDPipelineRun)
+		pr.Get("/api/cicd/runs", s.handleCICDRuns)
+		pr.Get("/api/cicd/runs/{id}", s.handleCICDRunDetail)
+		pr.Post("/api/cicd/runs/{id}/stop", s.handleCICDRunStop)
 
 		pr.Get("/api/scripts", s.handleScripts)
 		pr.Post("/api/scripts/upload", s.handleScriptUpload)
@@ -1223,4 +1237,829 @@ func (s *Server) flushTrendBuffer() error {
 		}
 	}
 	return nil
+}
+
+type appUpsertRequest struct {
+	Name         string            `json:"name"`
+	Type         string            `json:"type"`
+	Enabled      bool              `json:"enabled"`
+	StartCommand string            `json:"start_command"`
+	Shell        string            `json:"shell"`
+	WorkDir      string            `json:"work_dir"`
+	ProcessNames []string          `json:"process_names"`
+	Ports        []int             `json:"ports"`
+	HealthURL    string            `json:"health_url"`
+	HealthCmd    string            `json:"health_cmd"`
+	LogFiles     []string          `json:"log_files"`
+	Description  string            `json:"description"`
+	Owner        string            `json:"owner"`
+	Notes        string            `json:"notes"`
+	Env          map[string]string `json:"env"`
+}
+
+type appListItem struct {
+	Name             string            `json:"name"`
+	Type             string            `json:"type"`
+	Enabled          bool              `json:"enabled"`
+	StartCommand     string            `json:"start_command"`
+	Shell            string            `json:"shell"`
+	WorkDir          string            `json:"work_dir"`
+	ProcessNames     []string          `json:"process_names"`
+	Ports            []int             `json:"ports"`
+	HealthURL        string            `json:"health_url"`
+	HealthCmd        string            `json:"health_cmd"`
+	LogFiles         []string          `json:"log_files"`
+	Description      string            `json:"description"`
+	Owner            string            `json:"owner"`
+	Notes            string            `json:"notes"`
+	Env              map[string]string `json:"env"`
+	LastStartAt      string            `json:"last_start_at"`
+	LastStartStatus  string            `json:"last_start_status"`
+	LastStartMessage string            `json:"last_start_message"`
+	Status           string            `json:"status"`
+	ProcessCount     int               `json:"process_count"`
+	BytesIn          uint64            `json:"bytes_in"`
+	BytesOut         uint64            `json:"bytes_out"`
+}
+
+type appTrafficStat struct {
+	BytesIn  uint64
+	BytesOut uint64
+}
+
+type processCatalogEntry struct {
+	PID     int32
+	Name    string
+	Cmdline string
+	ExePath string
+}
+
+type scoredMatch struct {
+	Entry processCatalogEntry
+	Score int
+}
+
+func (s *Server) handleAppsList(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	apps := cloneApplications(s.cfg.Applications)
+	s.mu.RUnlock()
+
+	metaMap, err := s.loadAppMetaMap()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	catalog := buildProcessCatalog()
+	snapshot := s.traffic.Snapshot(0, 0)
+	pidTraffic := buildTrafficByPID(snapshot.Connections)
+
+	items := make([]appListItem, 0, len(apps))
+	for _, app := range apps {
+		meta := metaMap[strings.ToLower(strings.TrimSpace(app.Name))]
+		matched := matchAppProcesses(catalog, app.ProcessNames, app.Name, 32)
+		processCount := len(matched)
+		stat := aggregateTrafficByMatched(matched, pidTraffic)
+		status := "down"
+		if app.Enabled && processCount > 0 {
+			status = "up"
+		}
+		items = append(items, composeAppItem(app, meta, status, processCount, stat.BytesIn, stat.BytesOut))
+	}
+
+	sort.SliceStable(items, func(i, j int) bool {
+		return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *Server) handleAppsCreate(w http.ResponseWriter, r *http.Request) {
+	var req appUpsertRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	normalizeAppRequest(&req)
+	if req.Name == "" {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, idx := findAppByName(s.cfg.Applications, req.Name); idx >= 0 {
+		writeErr(w, http.StatusConflict, fmt.Errorf("app already exists: %s", req.Name))
+		return
+	}
+
+	app := requestToConfigApp(req, config.Application{})
+	s.cfg.Applications = append(s.cfg.Applications, app)
+	if err := s.persistConfigLocked(); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	if err := s.store.UpsertAppMeta(requestToAppMeta(req, store.AppMeta{AppName: req.Name})); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleAppsUpdate(w http.ResponseWriter, r *http.Request) {
+	oldName := strings.TrimSpace(chi.URLParam(r, "name"))
+	if oldName == "" {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	var req appUpsertRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	normalizeAppRequest(&req)
+	if req.Name == "" {
+		req.Name = oldName
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	existing, idx := findAppByName(s.cfg.Applications, oldName)
+	if idx < 0 {
+		writeErr(w, http.StatusNotFound, fmt.Errorf("app not found: %s", oldName))
+		return
+	}
+	if !strings.EqualFold(strings.TrimSpace(req.Name), oldName) {
+		if _, dup := findAppByName(s.cfg.Applications, req.Name); dup >= 0 {
+			writeErr(w, http.StatusConflict, fmt.Errorf("app already exists: %s", req.Name))
+			return
+		}
+	}
+
+	s.cfg.Applications[idx] = requestToConfigApp(req, existing)
+	if err := s.persistConfigLocked(); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	currentMeta, metaErr := s.store.GetAppMeta(oldName)
+	if metaErr != nil && !errors.Is(metaErr, sql.ErrNoRows) {
+		writeErr(w, http.StatusInternalServerError, metaErr)
+		return
+	}
+
+	baseMeta := store.AppMeta{AppName: req.Name}
+	if currentMeta != nil {
+		baseMeta = *currentMeta
+		baseMeta.AppName = req.Name
+	}
+	nextMeta := requestToAppMeta(req, baseMeta)
+	if err := s.store.UpsertAppMeta(nextMeta); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	if !strings.EqualFold(strings.TrimSpace(req.Name), oldName) {
+		_ = s.store.DeleteAppMeta(oldName)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleAppsDelete(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(chi.URLParam(r, "name"))
+	if name == "" {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, idx := findAppByName(s.cfg.Applications, name)
+	if idx < 0 {
+		writeErr(w, http.StatusNotFound, fmt.Errorf("app not found: %s", name))
+		return
+	}
+	s.cfg.Applications = append(s.cfg.Applications[:idx], s.cfg.Applications[idx+1:]...)
+	if err := s.persistConfigLocked(); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	_ = s.store.DeleteAppMeta(name)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleAppsDetail(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(chi.URLParam(r, "name"))
+	if name == "" {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	s.mu.RLock()
+	app, idx := findAppByName(s.cfg.Applications, name)
+	s.mu.RUnlock()
+	if idx < 0 {
+		writeErr(w, http.StatusNotFound, fmt.Errorf("app not found: %s", name))
+		return
+	}
+
+	metaMap, err := s.loadAppMetaMap()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	catalog := buildProcessCatalog()
+	matched := matchAppProcesses(catalog, app.ProcessNames, app.Name, 80)
+	pidSet := make(map[int32]struct{}, len(matched))
+	for _, item := range matched {
+		if item.PID > 0 {
+			pidSet[item.PID] = struct{}{}
+		}
+	}
+
+	snapshot := s.traffic.Snapshot(0, 0)
+	trafficRows := make([]any, 0, len(snapshot.Connections))
+	var bytesIn, bytesOut uint64
+	for _, row := range snapshot.Connections {
+		if _, ok := pidSet[row.PID]; !ok {
+			continue
+		}
+		trafficRows = append(trafficRows, row)
+		bytesIn += row.BytesIn
+		bytesOut += row.BytesOut
+	}
+
+	processDetails := make([]monitor.ProcessDetail, 0, len(matched))
+	for _, item := range matched {
+		detail, err := monitor.GetProcessDetail(item.PID)
+		if err != nil || detail == nil {
+			continue
+		}
+		processDetails = append(processDetails, *detail)
+	}
+	sort.SliceStable(processDetails, func(i, j int) bool {
+		if processDetails[i].CPUPercent != processDetails[j].CPUPercent {
+			return processDetails[i].CPUPercent > processDetails[j].CPUPercent
+		}
+		return processDetails[i].PID < processDetails[j].PID
+	})
+
+	meta := metaMap[strings.ToLower(strings.TrimSpace(app.Name))]
+	status := "down"
+	if app.Enabled && len(matched) > 0 {
+		status = "up"
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"item":                composeAppItem(app, meta, status, len(matched), bytesIn, bytesOut),
+		"process_details":     processDetails,
+		"traffic_connections": trafficRows,
+	})
+}
+
+func (s *Server) handleAppsStart(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(chi.URLParam(r, "name"))
+	if name == "" {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	s.mu.RLock()
+	app, idx := findAppByName(s.cfg.Applications, name)
+	systemCfg := s.cfg.System
+	s.mu.RUnlock()
+	if idx < 0 {
+		writeErr(w, http.StatusNotFound, fmt.Errorf("app not found: %s", name))
+		return
+	}
+
+	cmdText := strings.TrimSpace(app.StartCommand)
+	if cmdText == "" {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("start command is empty"))
+		return
+	}
+
+	meta, _ := s.store.GetAppMeta(app.Name)
+	envExtra := map[string]string{}
+	if meta != nil {
+		envExtra = cloneEnvMap(meta.Env)
+	}
+
+	workDir := strings.TrimSpace(app.WorkDir)
+	if workDir == "" {
+		workDir = strings.TrimSpace(systemCfg.DefaultWorkDir)
+	}
+	if workDir == "" {
+		workDir = "."
+	}
+	workDir = s.resolvePath(workDir)
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("invalid work_dir: %w", err))
+		return
+	}
+
+	shell := strings.TrimSpace(app.Shell)
+	if shell == "" {
+		shell = strings.TrimSpace(systemCfg.DefaultShell)
+	}
+
+	cmd := commandForAppStart(shell, cmdText)
+	cmd.Dir = filepath.Clean(workDir)
+	cmd.Env = buildAppEnv(app.Name, envExtra)
+
+	startedAt := time.Now()
+	if err := cmd.Start(); err != nil {
+		_ = s.store.UpdateAppStartResult(app.Name, "failed", err.Error(), startedAt)
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	pid := 0
+	if cmd.Process != nil {
+		pid = cmd.Process.Pid
+	}
+	msg := fmt.Sprintf("started by %s", shellNameForMessage(shell))
+	if pid > 0 {
+		msg = fmt.Sprintf("%s pid=%d", msg, pid)
+	}
+	_ = s.store.UpdateAppStartResult(app.Name, "success", msg, startedAt)
+
+	go func() {
+		_ = cmd.Wait()
+	}()
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":  true,
+		"pid": pid,
+	})
+}
+
+func cloneApplications(items []config.Application) []config.Application {
+	out := make([]config.Application, 0, len(items))
+	for _, item := range items {
+		c := item
+		c.ProcessNames = append([]string(nil), item.ProcessNames...)
+		c.Ports = append([]int(nil), item.Ports...)
+		c.LogFiles = append([]string(nil), item.LogFiles...)
+		out = append(out, c)
+	}
+	return out
+}
+
+func normalizeAppRequest(req *appUpsertRequest) {
+	req.Name = strings.TrimSpace(req.Name)
+	req.Type = strings.TrimSpace(req.Type)
+	req.StartCommand = strings.TrimSpace(req.StartCommand)
+	req.Shell = strings.TrimSpace(req.Shell)
+	req.WorkDir = strings.TrimSpace(req.WorkDir)
+	req.HealthURL = strings.TrimSpace(req.HealthURL)
+	req.HealthCmd = strings.TrimSpace(req.HealthCmd)
+	req.Description = strings.TrimSpace(req.Description)
+	req.Owner = strings.TrimSpace(req.Owner)
+	req.Notes = strings.TrimSpace(req.Notes)
+	if req.Type == "" {
+		req.Type = "application"
+	}
+	req.ProcessNames = normalizeStringSlice(req.ProcessNames)
+	req.LogFiles = normalizeStringSlice(req.LogFiles)
+	req.Ports = normalizePortSlice(req.Ports)
+	req.Env = normalizeEnvMap(req.Env)
+}
+
+func normalizeStringSlice(items []string) []string {
+	out := make([]string, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		key := strings.ToLower(item)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, item)
+	}
+	return out
+}
+
+func normalizePortSlice(ports []int) []int {
+	out := make([]int, 0, len(ports))
+	seen := make(map[int]struct{}, len(ports))
+	for _, port := range ports {
+		if port <= 0 || port > 65535 {
+			continue
+		}
+		if _, ok := seen[port]; ok {
+			continue
+		}
+		seen[port] = struct{}{}
+		out = append(out, port)
+	}
+	sort.Ints(out)
+	return out
+}
+
+func normalizeEnvMap(env map[string]string) map[string]string {
+	out := make(map[string]string, len(env))
+	for key, value := range env {
+		k := strings.TrimSpace(key)
+		if k == "" {
+			continue
+		}
+		out[k] = strings.TrimSpace(value)
+	}
+	return out
+}
+
+func requestToConfigApp(req appUpsertRequest, base config.Application) config.Application {
+	app := base
+	app.Name = req.Name
+	app.Type = req.Type
+	app.Enabled = req.Enabled
+	app.StartCommand = req.StartCommand
+	app.Shell = req.Shell
+	app.WorkDir = req.WorkDir
+	app.ProcessNames = append([]string(nil), req.ProcessNames...)
+	app.Ports = append([]int(nil), req.Ports...)
+	if req.HealthURL != "" || strings.TrimSpace(base.HealthURL) == "" {
+		app.HealthURL = req.HealthURL
+	}
+	if req.HealthCmd != "" || strings.TrimSpace(base.HealthCmd) == "" {
+		app.HealthCmd = req.HealthCmd
+	}
+	if len(req.LogFiles) > 0 || len(base.LogFiles) == 0 {
+		app.LogFiles = append([]string(nil), req.LogFiles...)
+	}
+	return app
+}
+
+func requestToAppMeta(req appUpsertRequest, base store.AppMeta) store.AppMeta {
+	meta := base
+	meta.AppName = req.Name
+	meta.Description = req.Description
+	meta.Owner = req.Owner
+	meta.Notes = req.Notes
+	meta.Env = cloneEnvMap(req.Env)
+	meta.UpdatedAt = time.Now()
+	return meta
+}
+
+func cloneEnvMap(src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return map[string]string{}
+	}
+	out := make(map[string]string, len(src))
+	for key, value := range src {
+		out[key] = value
+	}
+	return out
+}
+
+func (s *Server) loadAppMetaMap() (map[string]store.AppMeta, error) {
+	items, err := s.store.ListAppMeta()
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]store.AppMeta, len(items))
+	for _, item := range items {
+		key := strings.ToLower(strings.TrimSpace(item.AppName))
+		if key == "" {
+			continue
+		}
+		out[key] = item
+	}
+	return out, nil
+}
+
+func findAppByName(apps []config.Application, name string) (config.Application, int) {
+	key := strings.ToLower(strings.TrimSpace(name))
+	for idx, app := range apps {
+		if strings.ToLower(strings.TrimSpace(app.Name)) == key {
+			return app, idx
+		}
+	}
+	return config.Application{}, -1
+}
+
+func composeAppItem(app config.Application, meta store.AppMeta, status string, processCount int, bytesIn, bytesOut uint64) appListItem {
+	return appListItem{
+		Name:             app.Name,
+		Type:             app.Type,
+		Enabled:          app.Enabled,
+		StartCommand:     app.StartCommand,
+		Shell:            app.Shell,
+		WorkDir:          app.WorkDir,
+		ProcessNames:     append([]string(nil), app.ProcessNames...),
+		Ports:            append([]int(nil), app.Ports...),
+		HealthURL:        app.HealthURL,
+		HealthCmd:        app.HealthCmd,
+		LogFiles:         append([]string(nil), app.LogFiles...),
+		Description:      meta.Description,
+		Owner:            meta.Owner,
+		Notes:            meta.Notes,
+		Env:              cloneEnvMap(meta.Env),
+		LastStartAt:      formatOptionalTime(meta.LastStartAt),
+		LastStartStatus:  strings.TrimSpace(meta.LastStartStatus),
+		LastStartMessage: strings.TrimSpace(meta.LastStartMessage),
+		Status:           status,
+		ProcessCount:     processCount,
+		BytesIn:          bytesIn,
+		BytesOut:         bytesOut,
+	}
+}
+
+func formatOptionalTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format(time.RFC3339)
+}
+
+func buildTrafficByPID(rows []traffic.ConnectionRow) map[int32]appTrafficStat {
+	out := make(map[int32]appTrafficStat, 128)
+	for _, row := range rows {
+		if row.PID <= 0 {
+			continue
+		}
+		stat := out[row.PID]
+		stat.BytesIn += row.BytesIn
+		stat.BytesOut += row.BytesOut
+		out[row.PID] = stat
+	}
+	return out
+}
+
+func aggregateTrafficByMatched(matched []processCatalogEntry, byPID map[int32]appTrafficStat) appTrafficStat {
+	var out appTrafficStat
+	seen := make(map[int32]struct{}, len(matched))
+	for _, item := range matched {
+		if item.PID <= 0 {
+			continue
+		}
+		if _, ok := seen[item.PID]; ok {
+			continue
+		}
+		seen[item.PID] = struct{}{}
+		stat := byPID[item.PID]
+		out.BytesIn += stat.BytesIn
+		out.BytesOut += stat.BytesOut
+	}
+	return out
+}
+
+func buildProcessCatalog() []processCatalogEntry {
+	ps, err := process.Processes()
+	if err != nil {
+		return nil
+	}
+	out := make([]processCatalogEntry, 0, len(ps))
+	for _, p := range ps {
+		name, _ := p.Name()
+		cmdline, _ := p.Cmdline()
+		exe, _ := p.Exe()
+		if strings.TrimSpace(exe) == "" {
+			exe = executableFromCmdline(cmdline)
+		}
+		if strings.TrimSpace(name) == "" && strings.TrimSpace(exe) != "" {
+			name = filepath.Base(exe)
+		}
+		out = append(out, processCatalogEntry{
+			PID:     p.Pid,
+			Name:    strings.TrimSpace(name),
+			Cmdline: strings.TrimSpace(cmdline),
+			ExePath: strings.TrimSpace(exe),
+		})
+	}
+	return out
+}
+
+func matchAppProcesses(catalog []processCatalogEntry, patterns []string, appName string, limit int) []processCatalogEntry {
+	if len(catalog) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(patterns)+1)
+	for _, item := range patterns {
+		token := normalizeMatchToken(item)
+		if token != "" {
+			keys = append(keys, token)
+		}
+	}
+	if len(keys) == 0 {
+		if token := normalizeMatchToken(appName); token != "" {
+			keys = append(keys, token)
+		}
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+
+	serviceKey := normalizeMatchToken(appName)
+	byPID := make(map[int32]scoredMatch, len(catalog))
+	for _, entry := range catalog {
+		for idx, key := range keys {
+			score := scoreAppProcessMatch(entry, key, idx, serviceKey)
+			if score <= 0 {
+				continue
+			}
+			prev, exists := byPID[entry.PID]
+			if !exists || score > prev.Score {
+				byPID[entry.PID] = scoredMatch{Entry: entry, Score: score}
+			}
+			break
+		}
+	}
+	if len(byPID) == 0 {
+		return nil
+	}
+
+	scored := make([]scoredMatch, 0, len(byPID))
+	for _, item := range byPID {
+		scored = append(scored, item)
+	}
+	sort.SliceStable(scored, func(i, j int) bool {
+		if scored[i].Score != scored[j].Score {
+			return scored[i].Score > scored[j].Score
+		}
+		in := strings.ToLower(strings.TrimSpace(scored[i].Entry.Name))
+		jn := strings.ToLower(strings.TrimSpace(scored[j].Entry.Name))
+		if in != jn {
+			return in < jn
+		}
+		return scored[i].Entry.PID < scored[j].Entry.PID
+	})
+	if limit > 0 && len(scored) > limit {
+		scored = scored[:limit]
+	}
+	out := make([]processCatalogEntry, 0, len(scored))
+	for _, item := range scored {
+		out = append(out, item.Entry)
+	}
+	return out
+}
+
+func normalizeMatchToken(raw string) string {
+	token := strings.ToLower(strings.TrimSpace(raw))
+	token = strings.Trim(token, `"'`)
+	token = strings.TrimPrefix(token, "./")
+	token = strings.TrimPrefix(token, ".\\")
+	token = strings.TrimSuffix(token, ".exe")
+	token = strings.Trim(token, `\/`)
+	return token
+}
+
+func scoreAppProcessMatch(entry processCatalogEntry, key string, patternIndex int, serviceKey string) int {
+	key = normalizeMatchToken(key)
+	if key == "" {
+		return 0
+	}
+
+	name := normalizeMatchToken(entry.Name)
+	exeBase := normalizeMatchToken(filepath.Base(entry.ExePath))
+	exePath := strings.ToLower(strings.TrimSpace(entry.ExePath))
+	cmdline := strings.ToLower(strings.TrimSpace(entry.Cmdline))
+
+	score := 100 - patternIndex*8
+	if score < 20 {
+		score = 20
+	}
+
+	if key == name || key == exeBase {
+		score += 120
+	} else if strings.HasPrefix(name, key) || strings.HasPrefix(exeBase, key) {
+		score += 80
+	} else if containsWord(name, key) || containsWord(exeBase, key) {
+		score += 70
+	}
+
+	if strings.Contains(exePath, "/"+key) || strings.Contains(exePath, `\`+key) {
+		score += 60
+	}
+	if containsWord(cmdline, key) {
+		score += 50
+	}
+
+	if len(key) >= 4 {
+		if strings.Contains(name, key) {
+			score += 20
+		}
+		if strings.Contains(exeBase, key) {
+			score += 20
+		}
+	}
+	if len(key) >= 5 && strings.Contains(cmdline, key) {
+		score += 8
+	}
+
+	if serviceKey != "" && serviceKey != key {
+		if strings.Contains(name, serviceKey) || strings.Contains(exeBase, serviceKey) {
+			score += 35
+		} else if containsWord(cmdline, serviceKey) {
+			score += 22
+		}
+	}
+
+	if score < 120 {
+		return 0
+	}
+	return score
+}
+
+func containsWord(text, token string) bool {
+	text = strings.ToLower(strings.TrimSpace(text))
+	token = strings.ToLower(strings.TrimSpace(token))
+	if text == "" || token == "" {
+		return false
+	}
+	idx := strings.Index(text, token)
+	for idx >= 0 {
+		beforeOK := idx == 0 || !isWordChar(text[idx-1])
+		afterIdx := idx + len(token)
+		afterOK := afterIdx >= len(text) || !isWordChar(text[afterIdx])
+		if beforeOK && afterOK {
+			return true
+		}
+		next := idx + len(token)
+		if next >= len(text) {
+			break
+		}
+		n := strings.Index(text[next:], token)
+		if n < 0 {
+			break
+		}
+		idx = next + n
+	}
+	return false
+}
+
+func isWordChar(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') || b == '_' || b == '-' || b == '.'
+}
+
+func executableFromCmdline(cmdline string) string {
+	s := strings.TrimSpace(cmdline)
+	if s == "" {
+		return ""
+	}
+	if strings.HasPrefix(s, "\"") {
+		rest := s[1:]
+		if idx := strings.Index(rest, "\""); idx >= 0 {
+			return strings.TrimSpace(rest[:idx])
+		}
+	}
+	fields := strings.Fields(s)
+	if len(fields) == 0 {
+		return ""
+	}
+	return strings.Trim(fields[0], "\"")
+}
+
+func commandForAppStart(shell, command string) *exec.Cmd {
+	sh := strings.ToLower(strings.TrimSpace(shell))
+	switch sh {
+	case "powershell", "pwsh":
+		bin := "powershell"
+		if sh == "pwsh" {
+			bin = "pwsh"
+		}
+		return exec.Command(bin, "-NoProfile", "-Command", command)
+	case "cmd":
+		return exec.Command("cmd", "/C", command)
+	case "bash":
+		return exec.Command("bash", "-lc", command)
+	case "sh":
+		return exec.Command("sh", "-lc", command)
+	default:
+		if runtime.GOOS == "windows" {
+			return exec.Command("powershell", "-NoProfile", "-Command", command)
+		}
+		return exec.Command("sh", "-lc", command)
+	}
+}
+
+func buildAppEnv(appName string, extra map[string]string) []string {
+	env := append([]string(nil), os.Environ()...)
+	env = append(env, "OPS_APP_NAME="+strings.TrimSpace(appName))
+	for key, value := range extra {
+		k := strings.TrimSpace(key)
+		if k == "" {
+			continue
+		}
+		env = append(env, k+"="+strings.TrimSpace(value))
+	}
+	return env
+}
+
+func shellNameForMessage(shell string) string {
+	v := strings.TrimSpace(shell)
+	if v != "" {
+		return v
+	}
+	if runtime.GOOS == "windows" {
+		return "powershell"
+	}
+	return "sh"
 }

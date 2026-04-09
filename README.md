@@ -30,7 +30,7 @@
 | 模块 | 能力 | 说明 |
 | --- | --- | --- |
 | 系统监控 | CPU / 内存 / 磁盘 / IO / 网络 / 端口 / 进程 | 支持趋势落库，支持实时推送 |
-| 服务状态 | 应用 / 数据库 / 中间件 / 协议检查 | 统一聚合展示 |
+| 流程监控 | 脚本执行 / 数据备份 / CI/CD 流水线 | 统一聚合展示 |
 | 日志分析 | 关键字检索 / 级别过滤 / 规则匹配 / 导出 | 支持自定义日志源 |
 | 修复工具 | 脚本上传 / 执行 / 历史留痕 | 支持 `ps1/sh/bat/cmd` |
 | 数据备份 | 文件 / 数据库命令 / ES 命令 | 结果可下载 |
@@ -76,6 +76,22 @@ go run ./cmd/ops
 ```
 
 默认访问：`http://127.0.0.1:18082`（实际以 `config/config.yaml` 为准）。
+
+### 1.1) 启用流量抓包（Windows，CGO + Npcap）
+
+先安装 Npcap/Win10Pcap（需有 `wpcap.dll`），然后使用：
+
+```powershell
+./scripts/run-cgo.ps1
+```
+
+或手动设置：
+
+```powershell
+$env:GOPROXY="https://goproxy.cn,direct"
+$env:CGO_ENABLED="1"
+go run ./cmd/ops
+```
 
 ### 2) 直接运行二进制
 
@@ -131,6 +147,7 @@ monitor:
 - `GET /api/logs/apps` / `GET /api/logs/{app}`：日志源与检索
 - `POST /api/scripts/run`：脚本执行
 - `POST /api/backups/run`：触发备份
+- `GET /api/cicd/runs`：流程运行记录
 - `GET /api/cleanup/meta`：数据清理元信息
 - `POST /api/cleanup/scan`：目录扫描/大文件分析
 - `POST /api/cleanup/garbage`：垃圾清理（支持 dry-run）

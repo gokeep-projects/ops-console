@@ -15,13 +15,14 @@ system:
     default_shell: sh
     default_work_dir: .
     menu_visibility:
+        app-manager: true
         backup: true
         cicd: false
         cleanup: true
         docker: true
-        remote-control: true
         logs: true
         monitor: true
+        remote-control: true
         repair: true
         system: true
         traffic: true

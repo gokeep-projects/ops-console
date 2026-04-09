@@ -38,7 +38,7 @@ button {
 
 body {
   margin: 0;
-  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Segoe UI", "Heiti SC", "SimHei", sans-serif;
   color: var(--ink);
   background: linear-gradient(145deg, #f5f8fc, #edf3fb 45%, #f7fafc);
 }
@@ -1549,6 +1549,199 @@ input[type="radio"]:disabled {
 
 #monitor .process-top-card .card-head .input {
   min-width: 320px;
+}
+
+#monitor .service-status-card .flow-monitor-ops {
+  width: 100%;
+  justify-content: flex-end;
+}
+
+#flowMonitorSearch {
+  min-width: 320px;
+}
+
+#flowMonitorMeta {
+  margin: 0 0 10px;
+}
+
+.flow-monitor-modal .row {
+  align-items: center;
+}
+
+.flow-monitor-modal .row .input {
+  min-width: 170px;
+}
+
+#flowMonitorModalSearch {
+  min-width: 320px;
+}
+
+.flow-monitor-explorer .row .input {
+  min-width: 150px;
+}
+
+#flowMonitorDetailSearch {
+  min-width: 320px;
+}
+
+.flow-monitor-row-selected td {
+  background: rgba(29, 109, 215, 0.12) !important;
+}
+
+.modal.flow-monitor-modal-xl {
+  width: min(1540px, calc(100vw - 12px));
+  max-height: calc(100vh - 12px);
+}
+
+.modal.flow-monitor-modal-xl .modal-body {
+  max-height: calc(100vh - 82px);
+  padding: 10px 12px;
+}
+
+.modal.flow-monitor-modal-full {
+  width: min(1420px, calc(100vw - 56px));
+  max-height: calc(100vh - 56px);
+  border-radius: 14px;
+  border: 1px solid #d6e2f1;
+  background: #f8fbff;
+  box-shadow: 0 24px 48px rgba(14, 34, 63, 0.2);
+}
+
+.modal.flow-monitor-modal-full .modal-head {
+  padding: 10px 14px;
+  background: linear-gradient(180deg, #f4f8ff, #edf4ff);
+  border-bottom: 1px solid #d8e3f1;
+}
+
+.modal.flow-monitor-modal-full .modal-head h3 {
+  font-size: 16px;
+  color: #183a63;
+}
+
+.modal.flow-monitor-modal-full .modal-body {
+  max-height: calc(100vh - 128px);
+  padding: 12px;
+}
+
+.modal.flow-monitor-modal-full .flow-monitor-modal .row {
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.modal.flow-monitor-modal-full .flow-monitor-modal .input {
+  border: 1px solid #bfd2ea;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: none;
+}
+
+.modal.flow-monitor-modal-full .flow-monitor-modal .input:focus {
+  border-color: #5d8fcc;
+  box-shadow: 0 0 0 2px rgba(57, 118, 193, 0.15);
+}
+
+.modal.flow-monitor-modal-full #flowMonitorModalSearch {
+  min-width: 360px;
+}
+
+.modal.flow-monitor-modal-full #flowMonitorModalMeta {
+  margin: 4px 0 10px;
+  color: #567291;
+}
+
+.modal.flow-monitor-modal-full #flowMonitorModalTable {
+  max-height: calc(100vh - 260px);
+  overflow: auto;
+  border: 1px solid #d5e1ef;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.modal.flow-monitor-modal-full #flowMonitorModalTable table {
+  min-width: 1380px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.modal.flow-monitor-modal-full #flowMonitorModalTable table th,
+.modal.flow-monitor-modal-full #flowMonitorModalTable table td {
+  white-space: nowrap;
+  word-break: normal;
+  vertical-align: middle;
+}
+
+.modal.flow-monitor-modal-full #flowMonitorModalTable table th {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  background: #eef4fb;
+  color: #26486f;
+}
+
+.modal.flow-monitor-modal-full #flowMonitorModalTable table tbody tr:nth-child(odd) td {
+  background: #fbfdff;
+}
+
+.modal.flow-monitor-modal-full #flowMonitorModalTable table tbody tr:hover td {
+  background: rgba(44, 108, 181, 0.08);
+}
+
+.modal.flow-monitor-modal-full #flowMonitorModalTable table th:last-child,
+.modal.flow-monitor-modal-full #flowMonitorModalTable table td:last-child {
+  position: sticky;
+  right: 0;
+  min-width: 86px;
+  text-align: center;
+  border-left: 1px solid #d7e2f1;
+  box-shadow: -1px 0 0 #d7e2f1;
+  z-index: 5;
+  background: #f3f8ff;
+}
+
+#flowMonitorDetailTable,
+#flowMonitorModalTable,
+#flowMonitorList {
+  overflow: auto;
+}
+
+#flowMonitorDetailPanel .table {
+  overflow: auto;
+  max-height: 360px;
+}
+
+.flow-monitor-explorer table th,
+.flow-monitor-explorer table td,
+#flowMonitorDetailPanel table th,
+#flowMonitorDetailPanel table td {
+  white-space: nowrap;
+  word-break: normal;
+}
+
+#flowMonitorList table th:last-child,
+#flowMonitorList table td:last-child,
+#flowMonitorModalTable table th:last-child,
+#flowMonitorModalTable table td:last-child,
+#flowMonitorDetailTable table th:last-child,
+#flowMonitorDetailTable table td:last-child {
+  position: sticky;
+  right: 0;
+  min-width: 86px;
+  text-align: center;
+  z-index: 2;
+  background: #f8fbff;
+}
+
+#flowMonitorList table th:last-child,
+#flowMonitorModalTable table th:last-child,
+#flowMonitorDetailTable table th:last-child {
+  z-index: 4;
+  background: #e9f2ff;
+}
+
+.flow-monitor-json {
+  white-space: pre;
+  word-break: normal;
+  overflow: auto;
 }
 
 #portSearch {
@@ -3587,50 +3780,41 @@ body.remote-desktop-fullscreen {
   margin-top: 10px;
 }
 
-:is(#logs, #app-manager, #traffic-capture, #repair, #backup, #cleanup, #docker, #remote-control, #system) .ops {
+:is(#logs, #traffic, #traffic-capture, #repair, #backup, #cleanup, #docker, #remote-control, #system) .ops {
   gap: 9px;
 }
 
-:is(#logs, #app-manager, #traffic-capture, #repair, #backup, #cleanup, #docker, #remote-control, #system) .input {
+:is(#logs, #traffic, #traffic-capture, #repair, #backup, #cleanup, #docker, #remote-control, #system) .input {
   border-color: rgba(124, 165, 215, 0.68);
   border-radius: 12px;
   background: linear-gradient(170deg, #ffffff, #f2f8ff);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 1px 2px rgba(19, 46, 82, 0.08);
 }
 
-:is(#logs, #app-manager, #traffic-capture, #repair, #backup, #cleanup, #docker, #remote-control, #system) .input:focus {
+:is(#logs, #traffic, #traffic-capture, #repair, #backup, #cleanup, #docker, #remote-control, #system) .input:focus {
   border-color: rgba(42, 115, 209, 0.78);
   box-shadow: 0 0 0 3px rgba(42, 115, 209, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.95);
 }
 
-:is(#logs, #app-manager, #traffic-capture, #repair, #backup, #cleanup, #docker, #remote-control, #system) .table {
+:is(#logs, #traffic, #traffic-capture, #repair, #backup, #cleanup, #docker, #remote-control, #system) .table {
   border: 1px solid rgba(154, 185, 221, 0.58);
   border-radius: 14px;
   background: linear-gradient(170deg, rgba(255, 255, 255, 0.96), rgba(244, 250, 255, 0.93));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
 }
 
-:is(#logs, #app-manager, #traffic-capture, #repair, #backup, #cleanup, #docker, #remote-control, #system) .table table th {
+:is(#logs, #traffic, #traffic-capture, #repair, #backup, #cleanup, #docker, #remote-control, #system) .table table th {
   background: linear-gradient(180deg, #eef5ff, #e4efff);
   color: #224a79;
   border-bottom: 1px solid rgba(156, 185, 221, 0.7);
 }
 
-:is(#logs, #app-manager, #traffic-capture, #repair, #backup, #cleanup, #docker, #remote-control, #system) .table table td {
+:is(#logs, #traffic, #traffic-capture, #repair, #backup, #cleanup, #docker, #remote-control, #system) .table table td {
   border-bottom-color: rgba(207, 222, 240, 0.92);
 }
 
-:is(#logs, #app-manager, #traffic-capture, #repair, #backup, #cleanup, #docker, #remote-control, #system) .table tbody tr:hover td {
+:is(#logs, #traffic, #traffic-capture, #repair, #backup, #cleanup, #docker, #remote-control, #system) .table tbody tr:hover td {
   background: rgba(39, 124, 231, 0.09);
-}
-
-#appManagerSummary {
-  margin: 6px 0 12px;
-}
-
-#appManagerTable td:last-child .btn {
-  margin-right: 6px;
-  margin-bottom: 6px;
 }
 
 #logs .log-source-ops,
@@ -3853,4 +4037,109 @@ body.remote-desktop-fullscreen {
   .cleanup-side-column {
     grid-template-columns: 1fr;
   }
+}
+
+/* ===== Button Override 2026-04-06 (final) ===== */
+.btn,
+.content .panel .btn:not(.fs-tree-toggle),
+.modal .btn:not(.fs-tree-toggle) {
+  border: 1px solid #aac0df !important;
+  background: linear-gradient(180deg, #ffffff, #edf3fb) !important;
+  color: #17304f !important;
+  box-shadow: 0 5px 12px rgba(17, 46, 85, 0.16) !important;
+  border-radius: 10px !important;
+  min-height: 36px !important;
+  padding: 7px 13px !important;
+  font-weight: 600 !important;
+}
+
+.btn:hover,
+.content .panel .btn:not(.fs-tree-toggle):hover,
+.modal .btn:not(.fs-tree-toggle):hover {
+  border-color: #7ea4d5 !important;
+  background: linear-gradient(180deg, #ffffff, #e4eefb) !important;
+  color: #112f52 !important;
+  box-shadow: 0 8px 18px rgba(17, 46, 85, 0.22) !important;
+  transform: translateY(-1px);
+}
+
+.btn:active,
+.content .panel .btn:not(.fs-tree-toggle):active,
+.modal .btn:not(.fs-tree-toggle):active {
+  transform: translateY(0) scale(0.98);
+  box-shadow: 0 3px 8px rgba(17, 46, 85, 0.2) !important;
+}
+
+.btn.sm,
+.content .panel .btn.sm:not(.fs-tree-toggle),
+.modal .btn.sm:not(.fs-tree-toggle) {
+  min-height: 31px !important;
+  padding: 4px 10px !important;
+  border-radius: 9px !important;
+}
+
+.btn.active {
+  border-color: #164f9f !important;
+  background: linear-gradient(180deg, #2678de, #1b61bf) !important;
+  color: #ffffff !important;
+  box-shadow: 0 10px 22px rgba(27, 97, 191, 0.34) !important;
+}
+
+.btn.active:hover {
+  border-color: #13468f !important;
+  background: linear-gradient(180deg, #2f86ec, #1e66c5) !important;
+  color: #ffffff !important;
+}
+
+.btn.danger,
+.content .panel .btn.danger,
+.modal .btn.danger {
+  border-color: #9f3129 !important;
+  background: linear-gradient(180deg, #d75d52, #bc3c32) !important;
+  color: #ffffff !important;
+  box-shadow: 0 10px 22px rgba(188, 60, 50, 0.3) !important;
+}
+
+.btn.danger:hover,
+.content .panel .btn.danger:hover,
+.modal .btn.danger:hover {
+  border-color: #8f2a22 !important;
+  background: linear-gradient(180deg, #e16a5f, #c44338) !important;
+  color: #ffffff !important;
+}
+
+.btn:disabled,
+.btn[disabled],
+.content .panel .btn:disabled,
+.content .panel .btn[disabled],
+.modal .btn:disabled,
+.modal .btn[disabled] {
+  border-color: #c4d1e3 !important;
+  background: linear-gradient(180deg, #f8fafd, #edf2f8) !important;
+  color: #7a8ea8 !important;
+  box-shadow: none !important;
+  opacity: 0.74 !important;
+  transform: none !important;
+}
+
+.menu {
+  border: 1px solid rgba(149, 192, 249, 0.2) !important;
+  background: rgba(39, 82, 141, 0.2) !important;
+  color: rgba(233, 244, 255, 0.84) !important;
+  border-radius: 12px !important;
+  font-weight: 600;
+}
+
+.menu:hover {
+  border-color: rgba(179, 217, 255, 0.46) !important;
+  background: rgba(54, 112, 189, 0.44) !important;
+  color: #ffffff !important;
+  box-shadow: 0 10px 16px rgba(6, 24, 50, 0.28) !important;
+}
+
+.menu.active {
+  border-color: rgba(186, 221, 255, 0.7) !important;
+  background: linear-gradient(180deg, #2f7fdf, #1a5cb7) !important;
+  color: #ffffff !important;
+  box-shadow: 0 10px 18px rgba(12, 57, 127, 0.4) !important;
 }

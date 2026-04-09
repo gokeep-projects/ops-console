@@ -39,7 +39,8 @@ func GetProcessDetail(pid int32) (*ProcessDetail, error) {
 	if len(statuses) > 0 {
 		status = statuses[0]
 	}
-	cpuPercent, _ := p.CPUPercent()
+	rawCPUPercent, _ := p.CPUPercent()
+	cpuPercent := normalizeProcessCPUPercent(rawCPUPercent, logicalCPUCount())
 	memPercent, _ := p.MemoryPercent()
 	memInfo, _ := p.MemoryInfo()
 	ioInfo, _ := p.IOCounters()

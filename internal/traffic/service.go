@@ -223,11 +223,11 @@ func (m *Manager) StartCapture(interfaceName, captureFilter string) error {
 
 	handle, err := pcap.OpenLive(iface.Name, 65535, true, pcap.BlockForever)
 	if err != nil {
-		return fmt.Errorf("open capture interface failed: %w", err)
+		return normalizePcapError("open capture interface failed", err)
 	}
 	if err := handle.SetBPFFilter(captureFilter); err != nil {
 		handle.Close()
-		return fmt.Errorf("apply capture filter failed: %w", err)
+		return normalizePcapError("apply capture filter failed", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -920,6 +920,11 @@ func resolveProcMeta(pid int32, cache map[int32]procMeta) procMeta {
 		return item
 	}
 	meta := procMeta{Name: "-", ExePath: "-"}
+	if pid <= 0 {
+		meta.Name = "内核/系统"
+		cache[pid] = meta
+		return meta
+	}
 	if pid > 0 {
 		if p, err := process.NewProcess(pid); err == nil {
 			name, _ := p.Name()
@@ -931,6 +936,9 @@ func resolveProcMeta(pid int32, cache map[int32]procMeta) procMeta {
 				meta.ExePath = exe
 			}
 		}
+	}
+	if strings.TrimSpace(meta.Name) == "" || meta.Name == "-" {
+		meta.Name = fmt.Sprintf("PID-%d", pid)
 	}
 	cache[pid] = meta
 	return meta
@@ -1189,4 +1197,19 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func normalizePcapError(action string, err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	switch {
+	case strings.Contains(msg, "couldn't load wpcap.dll"), strings.Contains(msg, "can't load wpcap.dll"):
+		return fmt.Errorf("%s: 未检测到抓包运行库 wpcap.dll，请先安装 Npcap/Win10Pcap", action)
+	case strings.Contains(msg, "access is denied"), strings.Contains(msg, "(5)"):
+		return fmt.Errorf("%s: 抓包权限不足，请使用管理员权限运行程序后重试", action)
+	default:
+		return fmt.Errorf("%s: %w", action, err)
+	}
 }

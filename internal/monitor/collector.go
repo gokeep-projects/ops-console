@@ -429,11 +429,13 @@ func gatherTopProcesses(limit int) ([]ProcessInfo, int, int) {
 	if err != nil {
 		return nil, 0, 0
 	}
+	logicalCores := logicalCPUCount()
 	items := make([]ProcessInfo, 0, len(ps))
 	totalThreads := 0
 	for _, p := range ps {
 		name, _ := p.Name()
-		c, _ := p.CPUPercent()
+		rawCPU, _ := p.CPUPercent()
+		c := normalizeProcessCPUPercent(rawCPU, logicalCores)
 		m, _ := p.MemoryPercent()
 		cmdline, _ := p.Cmdline()
 		exe, _ := p.Exe()
@@ -762,6 +764,7 @@ func gatherJVM(limit int) []ProcessInfo {
 	if err != nil {
 		return nil
 	}
+	logicalCores := logicalCPUCount()
 	res := make([]ProcessInfo, 0, 16)
 	for _, p := range ps {
 		name, _ := p.Name()
@@ -770,7 +773,8 @@ func gatherJVM(limit int) []ProcessInfo {
 		if !isJavaProcess(name, cmdline, exe) {
 			continue
 		}
-		c, _ := p.CPUPercent()
+		rawCPU, _ := p.CPUPercent()
+		c := normalizeProcessCPUPercent(rawCPU, logicalCores)
 		m, _ := p.MemoryPercent()
 		t, _ := p.NumThreads()
 		res = append(res, ProcessInfo{
@@ -879,6 +883,35 @@ func sortByCPUDesc(items []ProcessInfo) {
 	sort.Slice(items, func(i, j int) bool {
 		return items[i].CPU > items[j].CPU
 	})
+}
+
+func logicalCPUCount() int {
+	cores, err := cpu.Counts(true)
+	if err == nil && cores > 0 {
+		return cores
+	}
+	if runtime.NumCPU() > 0 {
+		return runtime.NumCPU()
+	}
+	return 1
+}
+
+func normalizeProcessCPUPercent(raw float64, logicalCores int) float64 {
+	if raw <= 0 {
+		return 0
+	}
+	cores := logicalCores
+	if cores <= 0 {
+		cores = 1
+	}
+	normalized := raw / float64(cores)
+	if normalized < 0 {
+		return 0
+	}
+	if normalized > 100 {
+		return 100
+	}
+	return normalized
 }
 
 func trim(s string, max int) string {
