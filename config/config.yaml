@@ -26,7 +26,6 @@ system:
         repair: true
         system: true
         traffic: true
-        traffic-capture: true
     runtime_logs:
         enabled: false
         file_path: logs/ops-console/runtime.log

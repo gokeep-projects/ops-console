@@ -1,6 +1,5 @@
 param(
-    [string]$Version = "dev",
-    [switch]$EnableTrafficCapture
+    [string]$Version = "dev"
 )
 
 $ErrorActionPreference = "Stop"
@@ -37,16 +36,7 @@ $targets = @(
 New-Item -ItemType Directory -Force -Path "dist" | Out-Null
 
 foreach ($t in $targets) {
-    $useCGO = $false
-    if ($EnableTrafficCapture -and $t.GOOS -eq "windows" -and $t.GOARCH -eq "amd64") {
-        if (Test-Path "C:\Windows\System32\wpcap.dll") {
-            $useCGO = $true
-        } else {
-            Write-Warning "wpcap.dll not found, fallback to CGO_ENABLED=0 for $($t.GOOS)-$($t.GOARCH)"
-        }
-    }
-
-    $env:CGO_ENABLED = $(if ($useCGO) { "1" } else { "0" })
+    $env:CGO_ENABLED = "0"
     $env:GOOS = $t.GOOS
     $env:GOARCH = $t.GOARCH
 

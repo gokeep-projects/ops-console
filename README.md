@@ -77,22 +77,6 @@ go run ./cmd/ops
 
 默认访问：`http://127.0.0.1:18082`（实际以 `config/config.yaml` 为准）。
 
-### 1.1) 启用流量抓包（Windows，CGO + Npcap）
-
-先安装 Npcap/Win10Pcap（需有 `wpcap.dll`），然后使用：
-
-```powershell
-./scripts/run-cgo.ps1
-```
-
-或手动设置：
-
-```powershell
-$env:GOPROXY="https://goproxy.cn,direct"
-$env:CGO_ENABLED="1"
-go run ./cmd/ops
-```
-
 ### 2) 直接运行二进制
 
 ```bash

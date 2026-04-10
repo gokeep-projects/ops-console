@@ -76,6 +76,17 @@
         </span>
         <span class="menu-label">日志分析</span>
       </button>
+      <button class="menu" type="button" data-section="app-manager" title="应用管理" aria-label="应用管理">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none">
+            <rect x="2.5" y="2.8" width="11" height="10.4" rx="1.5" />
+            <path d="M5.5 6h5" />
+            <path d="M5.5 8.2h5" />
+            <path d="M5.5 10.4h3" />
+          </svg>
+        </span>
+        <span class="menu-label">应用管理</span>
+      </button>
       <button class="menu" type="button" data-section="traffic" title="进程流量" aria-label="进程流量">
         <span class="menu-icon" aria-hidden="true">
           <svg viewBox="0 0 16 16" fill="none">
@@ -85,17 +96,6 @@
           </svg>
         </span>
         <span class="menu-label">进程流量</span>
-      </button>
-      <button class="menu" type="button" data-section="traffic-capture" title="数据包抓包" aria-label="数据包抓包">
-        <span class="menu-icon" aria-hidden="true">
-          <svg viewBox="0 0 16 16" fill="none">
-            <rect x="2.5" y="3" width="11" height="8.5" rx="1.5" />
-            <path d="M5 6h6" />
-            <path d="M5 8.5h4.5" />
-            <path d="M6.5 13h3" />
-          </svg>
-        </span>
-        <span class="menu-label">数据包抓包</span>
       </button>
       <button class="menu" type="button" data-section="repair" title="修复工具" aria-label="修复工具">
         <span class="menu-icon" aria-hidden="true">
@@ -117,18 +117,6 @@
           </svg>
         </span>
         <span class="menu-label">数据备份</span>
-      </button>
-      <button class="menu" type="button" data-section="cleanup" title="数据清理" aria-label="数据清理">
-        <span class="menu-icon" aria-hidden="true">
-          <svg viewBox="0 0 16 16" fill="none">
-            <path d="M3.5 4h9" />
-            <path d="M5.5 4V3a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1" />
-            <path d="M4.5 4.5l.6 8a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-8" />
-            <path d="M6.7 7v4.2" />
-            <path d="M9.3 7v4.2" />
-          </svg>
-        </span>
-        <span class="menu-label">数据清理</span>
       </button>
       <button class="menu" type="button" data-section="docker" title="Docker管理" aria-label="Docker管理">
         <span class="menu-icon" aria-hidden="true">
@@ -152,6 +140,17 @@
           </svg>
         </span>
         <span class="menu-label">远程控制</span>
+      </button>
+      <button class="menu" type="button" data-section="ssh-remote" title="SSH远程" aria-label="SSH远程">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none">
+            <path d="M2.5 4.2h11v7.6h-11z" />
+            <path d="m5.1 7.2-1.6 1.4 1.6 1.4" />
+            <path d="m7.2 10.1h2.7" />
+            <circle cx="11.4" cy="8.6" r=".9" />
+          </svg>
+        </span>
+        <span class="menu-label">SSH远程</span>
       </button>
       <button class="menu" type="button" data-section="system" title="系统管理" aria-label="系统管理">
         <span class="menu-icon" aria-hidden="true">
@@ -357,7 +356,9 @@
             <select id="logLevel" class="input">
               <option value="all">全部</option>
               <option value="info">信息</option>
+              <option value="warn">告警</option>
               <option value="error">错误</option>
+              <option value="debug">调试</option>
             </select>
             <select id="logRule" class="input">
               <option value="">常见问题规则</option>
@@ -371,6 +372,76 @@
           <div id="logFileSelector" class="selector"></div>
           <div id="logStats" class="log-stats-grid"></div>
           <div id="logResult" class="log-view"></div>
+        </div>
+      </section>
+
+      <section id="app-manager" class="panel app-manager-panel">
+        <article class="card app-manager-hero-card">
+          <div class="app-manager-hero-head">
+            <div>
+              <h3>应用管理中心</h3>
+              <p id="appManagerSummaryText" class="hint">正在加载应用资产...</p>
+            </div>
+            <span class="app-manager-hero-badge">应用运维</span>
+          </div>
+          <div class="app-manager-kpi-grid">
+            <div class="app-manager-kpi-card total">
+              <span>应用总数</span>
+              <strong id="appManagerKpiTotal">0</strong>
+            </div>
+            <div class="app-manager-kpi-card up">
+              <span>运行中</span>
+              <strong id="appManagerKpiUp">0</strong>
+            </div>
+            <div class="app-manager-kpi-card down">
+              <span>未运行</span>
+              <strong id="appManagerKpiDown">0</strong>
+            </div>
+            <div class="app-manager-kpi-card disabled">
+              <span>已禁用</span>
+              <strong id="appManagerKpiDisabled">0</strong>
+            </div>
+          </div>
+        </article>
+
+        <div class="grid cards-2 app-manager-main-grid">
+          <article class="card app-manager-list-card">
+            <div class="card-head">
+              <h3>应用清单</h3>
+              <div class="ops">
+                <button id="appManagerRefreshBtn" class="btn sm" type="button">刷新</button>
+                <button id="appManagerCreateBtn" class="btn sm" type="button">新增应用</button>
+              </div>
+            </div>
+            <div class="row app-manager-filter-row">
+              <input id="appManagerSearch" class="input" placeholder="搜索应用名 / 负责人 / 进程 / 端口 / 路径" />
+              <select id="appManagerStatusFilter" class="input sm">
+                <option value="all">全部状态</option>
+                <option value="up">运行中</option>
+                <option value="down">未运行</option>
+              </select>
+              <select id="appManagerEnabledFilter" class="input sm">
+                <option value="all">全部启用状态</option>
+                <option value="enabled">仅启用</option>
+                <option value="disabled">仅禁用</option>
+              </select>
+            </div>
+            <div id="appManagerTable" class="table app-manager-table"></div>
+          </article>
+
+          <article class="card app-manager-detail-card">
+            <div class="card-head">
+              <h3>应用详情</h3>
+              <div class="ops">
+                <button id="appManagerStartBtn" class="btn sm" type="button" disabled>启动选中</button>
+                <button id="appManagerEditBtn" class="btn sm" type="button" disabled>编辑</button>
+                <button id="appManagerDeleteBtn" class="btn sm danger" type="button" disabled>删除</button>
+              </div>
+            </div>
+            <div id="appManagerDetailBody" class="app-manager-detail-body">
+              <div class="hint">请选择左侧应用查看详情</div>
+            </div>
+          </article>
         </div>
       </section>
 
@@ -388,24 +459,12 @@
               <span>连接数</span>
               <strong data-traffic-kpi="connections">0</strong>
             </div>
-            <div class="traffic-kpi-card">
-              <span>已捕获数据包</span>
-              <strong data-traffic-kpi="packets">0</strong>
-            </div>
-            <div class="traffic-kpi-card">
-              <span>HTTP 明文</span>
-              <strong data-traffic-kpi="http">0</strong>
-            </div>
-            <div class="traffic-kpi-card">
-              <span>抓包接口</span>
-              <strong data-traffic-kpi="interface">-</strong>
-            </div>
           </div>
         </article>
 
         <article class="card">
           <div class="card-head">
-            <h3>进程 / 连接流量排行</h3>
+            <h3>进程 / 连接流量排行 <span id="trafficConnectionCountInTitle" class="hint traffic-title-count">连接数 0</span></h3>
             <div class="ops">
               <input id="trafficConnectionSearch" class="input sm" placeholder="搜索进程 / PID / 端口 / IP" />
             </div>
@@ -414,92 +473,6 @@
         </article>
       </section>
 
-      <section id="traffic-capture" class="panel traffic-panel">
-        <article class="card traffic-hero-card">
-          <div class="card-head">
-            <h3>数据包抓包（Wireshark 风格）</h3>
-            <div class="ops traffic-capture-ops">
-              <select id="trafficInterface" class="input"></select>
-              <select id="trafficBuiltinFilter" class="input sm">
-                <option value="ip or ip6 or arp">全部流量</option>
-                <option value="tcp">仅 TCP</option>
-                <option value="udp">仅 UDP</option>
-                <option value="tcp port 80 or tcp port 8080 or tcp port 8000 or tcp port 8888">HTTP 常见端口</option>
-                <option value="tcp port 443">HTTPS/TLS</option>
-                <option value="udp port 53 or tcp port 53">DNS</option>
-              </select>
-              <input id="trafficCustomFilter" class="input" placeholder="自定义抓包过滤（BPF），例如 tcp and port 443" />
-              <button id="trafficStartBtn" class="btn sm" type="button">开始抓包</button>
-              <button id="trafficStopBtn" class="btn sm danger" type="button">停止抓包</button>
-              <button id="trafficCaptureRefreshBtn" class="btn sm" type="button">刷新</button>
-            </div>
-          </div>
-          <p data-traffic-status-summary class="hint">正在加载抓包状态...</p>
-          <div class="traffic-kpi-grid">
-            <div class="traffic-kpi-card">
-              <span>连接数</span>
-              <strong data-traffic-kpi="connections">0</strong>
-            </div>
-            <div class="traffic-kpi-card">
-              <span>已捕获数据包</span>
-              <strong data-traffic-kpi="packets">0</strong>
-            </div>
-            <div class="traffic-kpi-card">
-              <span>HTTP 明文</span>
-              <strong data-traffic-kpi="http">0</strong>
-            </div>
-            <div class="traffic-kpi-card">
-              <span>抓包接口</span>
-              <strong data-traffic-kpi="interface">-</strong>
-            </div>
-          </div>
-          <p class="hint">默认展示数据包列表；支持内置过滤和自定义过滤。右键数据包可切换解码方式。</p>
-        </article>
-
-        <article class="card traffic-filter-card">
-          <div class="row">
-            <select id="trafficDisplayPreset" class="input sm">
-              <option value="all">显示全部</option>
-              <option value="tcp">显示 TCP</option>
-              <option value="udp">显示 UDP</option>
-              <option value="http">显示 HTTP</option>
-              <option value="https">显示 HTTPS/TLS</option>
-              <option value="dns">显示 DNS</option>
-            </select>
-            <input id="trafficDisplayFilter" class="input" placeholder="自定义显示过滤：proto:tcp src:10.0.0.8 dst:1.1.1.1 port:443 len>200 contains:login" />
-            <button id="trafficApplyFilterBtn" class="btn sm" type="button">应用过滤</button>
-            <button id="trafficClearFilterBtn" class="btn sm" type="button">清空过滤</button>
-          </div>
-        </article>
-
-        <article class="card traffic-packet-card">
-          <div class="card-head">
-            <h3>数据包列表</h3>
-            <div class="ops">
-              <span id="trafficPacketHint" class="hint">右键任意行可切换解码</span>
-            </div>
-          </div>
-          <div id="trafficPacketTable" class="table traffic-packet-table"></div>
-        </article>
-
-        <article class="card traffic-detail-card">
-          <div class="card-head">
-            <h3>数据包详情</h3>
-            <div class="ops">
-              <span id="trafficPacketDetailTitle" class="hint">未选择数据包</span>
-            </div>
-          </div>
-          <div id="trafficPacketDetailMeta" class="table"></div>
-          <pre id="trafficPacketDetailBody" class="log-view compact">请选择上方数据包查看详情</pre>
-        </article>
-
-        <div id="trafficPacketContextMenu" class="traffic-context-menu hidden">
-          <button type="button" data-decode-mode="auto">自动解码</button>
-          <button type="button" data-decode-mode="http">按 HTTP 尝试解码</button>
-          <button type="button" data-decode-mode="ascii">按 ASCII 文本</button>
-          <button type="button" data-decode-mode="hex">按 HEX 视图</button>
-        </div>
-      </section>
 
       <section id="repair" class="panel repair-panel">
         <div class="repair-hero">
@@ -600,111 +573,7 @@
           <h3>备份文件列表</h3>
           <div id="backupList" class="table"></div>
         </article>
-      </section>
-
-      <section id="cleanup" class="panel cleanup-panel">
-        <article class="card cleanup-toolbar-card">
-          <div class="cleanup-toolbar">
-            <div class="cleanup-toolbar-title">
-              <h3>数据清理 / 空间分析</h3>
-              <span id="cleanupIndexerTag" class="cleanup-indexer-tag">内置扫描引擎</span>
-            </div>
-            <div class="cleanup-toolbar-ops">
-              <button id="cleanupLoadRootsBtn" class="btn sm" type="button">刷新分区</button>
-              <button id="cleanupOpenTreeBtn" class="btn sm" type="button">从目录树选择</button>
-              <button id="cleanupScanBtn" class="btn sm" type="button">开始扫描</button>
-              <button id="cleanupStopScanBtn" class="btn sm danger" type="button" disabled>停止扫描</button>
-            </div>
-          </div>
-          <div class="cleanup-filter-row">
-            <div id="cleanupRootOptions" class="selector cleanup-root-options"></div>
-          </div>
-          <div class="cleanup-filter-row">
-            <input id="cleanupCustomRoot" class="input" placeholder="自定义扫描目录（绝对路径），例如 D:\data 或 /data/logs" />
-            <button id="cleanupAddRootBtn" class="btn sm" type="button">添加目录</button>
-          </div>
-          <div id="cleanupCustomRootList" class="selector cleanup-custom-roots"></div>
-          <div class="cleanup-filter-row compact">
-            <input id="cleanupSearch" class="input" placeholder="模糊搜索：文件名 / 路径 / 文件类型" />
-            <input id="cleanupLargeThresholdGB" class="input sm" value="1" />
-            <button id="cleanupApplyFilterBtn" class="btn sm" type="button">应用筛选</button>
-          </div>
-          <div class="scan-progress-card">
-            <div class="scan-progress-track">
-              <span id="cleanupScanProgressBar" class="scan-progress-bar"></span>
-            </div>
-            <div id="cleanupScanProgressText" class="scan-progress-text">等待开始</div>
-          </div>
-          <div class="cleanup-kpi-grid">
-            <div class="cleanup-kpi-card">
-              <div class="cleanup-kpi-label">已扫描文件</div>
-              <div id="cleanupKpiScanned" class="cleanup-kpi-value">0</div>
-            </div>
-            <div class="cleanup-kpi-card">
-              <div class="cleanup-kpi-label">当前命中</div>
-              <div id="cleanupKpiMatched" class="cleanup-kpi-value">0</div>
-            </div>
-            <div class="cleanup-kpi-card">
-              <div class="cleanup-kpi-label">命中总大小</div>
-              <div id="cleanupKpiSize" class="cleanup-kpi-value">0 B</div>
-            </div>
-            <div class="cleanup-kpi-card">
-              <div class="cleanup-kpi-label">大文件数量</div>
-              <div id="cleanupKpiLarge" class="cleanup-kpi-value">0</div>
-            </div>
-          </div>
-          <p id="cleanupSummary" class="hint">未开始扫描</p>
-        </article>
-
-        <div class="cleanup-main-grid">
-          <article class="card cleanup-card-main">
-            <div class="card-head">
-              <h3>体积热区（WizTree 风格）</h3>
-            </div>
-            <div id="cleanupTopBars" class="cleanup-bars-view"></div>
-            <div id="cleanupFileList" class="table"></div>
-          </article>
-          <div class="cleanup-side-column">
-            <article class="card">
-              <div class="card-head">
-                <h3>大文件（按大小降序）</h3>
-              </div>
-              <div id="cleanupLargeFileList" class="table"></div>
-            </article>
-            <article class="card">
-              <div class="card-head">
-                <h3>目录占用排行</h3>
-              </div>
-              <div id="cleanupDirChart" class="cleanup-mini-chart"></div>
-              <div id="cleanupDirSummaryList" class="table"></div>
-            </article>
-            <article class="card">
-              <div class="card-head">
-                <h3>文件类型分布</h3>
-              </div>
-              <div id="cleanupTypeChart" class="cleanup-mini-chart"></div>
-              <div id="cleanupTypeSummaryList" class="table"></div>
-            </article>
-          </div>
-        </div>
-
-        <article class="card cleanup-garbage-card">
-          <div class="card-head">
-            <h3>垃圾清理（安全模式）</h3>
-            <div class="ops">
-              <button id="cleanupPreviewBtn" class="btn sm" type="button">预估可清理</button>
-              <button id="cleanupRunBtn" class="btn sm danger" type="button">执行清理</button>
-              <button id="cleanupStopGarbageBtn" class="btn sm" type="button" disabled>停止清理</button>
-            </div>
-          </div>
-          <p class="hint">仅清理缓存 / 临时 / 日志类旧文件，并保留近期文件，避免影响系统运行。</p>
-          <div id="cleanupGarbageTargets" class="selector"></div>
-          <p id="cleanupGarbageSummary" class="hint">未开始清理</p>
-          <div id="cleanupGarbageResult" class="table"></div>
-        </article>
-      </section>
-
-      <section id="docker" class="panel docker-panel">
+      </section>`r`n`r`n      <section id="docker" class="panel docker-panel">
         <article class="card docker-hero-card">
           <div class="docker-hero-head">
             <div>
@@ -806,11 +675,44 @@
           <div class="remote-status-row">
             <span id="remoteStatusBadge" class="badge unknown">未连接</span>
             <span id="remoteStatusText" class="hint">等待连接</span>
-            <span class="hint">鼠标点击/拖动/滚轮和键盘按键会直接控制服务器桌面。</span>
+            <span class="hint">仅在服务器已登录图形桌面后可连接，未开机或未登录时请勿直接连接。</span>
           </div>
           <div id="remoteDesktopWrap" class="remote-desktop-wrap">
             <canvas id="remoteDesktopCanvas" class="remote-desktop-canvas" width="1280" height="720" tabindex="0"></canvas>
             <div id="remoteDesktopOverlay" class="remote-desktop-overlay">点击“连接桌面”开始远程控制</div>
+          </div>
+        </article>
+      </section>
+
+      <section id="ssh-remote" class="panel ssh-panel">
+        <article class="card ssh-card">
+          <div class="card-head">
+            <h3>SSH 远程终端</h3>
+            <div class="ops ssh-ops">
+              <button id="sshStartBtn" class="btn sm" type="button">开始 SSH</button>
+              <button id="sshDisconnectBtn" class="btn sm danger" type="button" disabled>断开连接</button>
+              <button id="sshClearBtn" class="btn sm" type="button">清空屏幕</button>
+            </div>
+          </div>
+          <div class="row ssh-connect-row">
+            <input id="sshHost" class="input" placeholder="主机地址，例如：192.168.1.10 或 server.example.com" />
+            <input id="sshPort" class="input sm" type="number" min="1" max="65535" value="22" />
+            <input id="sshUsername" class="input sm" placeholder="用户名，例如：root" />
+          </div>
+          <div class="row ssh-connect-row">
+            <input id="sshPassword" class="input" type="password" placeholder="密码登录（可选，私钥与密码至少填一项）" />
+            <input id="sshPassphrase" class="input" type="password" placeholder="私钥口令（可选）" />
+          </div>
+          <div class="row ssh-connect-row ssh-key-row">
+            <textarea id="sshPrivateKey" class="input" rows="4" placeholder="私钥登录（可选，粘贴 OPENSSH/PEM 私钥）"></textarea>
+          </div>
+          <div class="ssh-status-row">
+            <span id="sshStatusBadge" class="badge unknown">未连接</span>
+            <span id="sshStatusText" class="hint">请填写连接信息后点击“开始 SSH”</span>
+            <span class="hint">安全提示：当前版本默认信任主机指纹，请仅连接可信主机。</span>
+          </div>
+          <div id="sshTerminalWrap" class="ssh-terminal-wrap">
+            <div id="sshTerminal" class="ssh-terminal"></div>
           </div>
         </article>
       </section>
@@ -870,11 +772,7 @@
                   <span>并发任务数</span>
                   <input id="systemMaxConcurrentTasks" class="input" placeholder="4" />
                 </label>
-                <label class="field">
-                  <span>清理进度刷新(ms)</span>
-                  <input id="systemCleanupProgressInterval" class="input" placeholder="300" />
-                </label>
-                <label class="field">
+<label class="field">
                   <span>Docker 默认分页</span>
                   <input id="systemDockerPageSize" class="input" placeholder="20" />
                 </label>
@@ -917,3 +815,4 @@
       <div id="modalBody" class="modal-body"></div>
     </div>
   </div>
+

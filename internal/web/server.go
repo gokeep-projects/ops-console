@@ -71,9 +71,6 @@ type Server struct {
 
 	authMu       sync.RWMutex
 	authSessions map[string]authSession
-
-	cleanupJobMu sync.RWMutex
-	cleanupJobs  map[string]*cleanupScanJob
 }
 
 const (
@@ -128,7 +125,6 @@ func NewServer(baseDir, configPath string, cfg *config.Config, st *store.Store) 
 		trendBuffer:  make([]store.MonitorTrendSample, 0, 256),
 		wsClients:    make(map[*monitorWSClient]struct{}),
 		authSessions: make(map[string]authSession),
-		cleanupJobs:  make(map[string]*cleanupScanJob),
 	}
 	s.router = s.routes()
 	return s, nil
@@ -226,11 +222,9 @@ func (s *Server) routes() *chi.Mux {
 		pr.Get("/api/remote/meta", s.handleRemoteMeta)
 		pr.Post("/api/remote/input", s.handleRemoteDesktopInput)
 		pr.Get("/ws/remote/desktop", s.handleRemoteDesktopWS)
+		pr.Get("/ws/remote/ssh", s.handleRemoteSSHWS)
 
 		pr.Get("/api/traffic", s.handleTrafficSnapshot)
-		pr.Get("/api/traffic/interfaces", s.handleTrafficInterfaces)
-		pr.Post("/api/traffic/capture/start", s.handleTrafficCaptureStart)
-		pr.Post("/api/traffic/capture/stop", s.handleTrafficCaptureStop)
 
 		pr.Get("/api/cicd/pipelines", s.handleCICDPipelines)
 		pr.Post("/api/cicd/pipelines", s.handleCICDPipelineCreate)
@@ -251,12 +245,6 @@ func (s *Server) routes() *chi.Mux {
 		pr.Post("/api/backups/run", s.handleBackupRun)
 		pr.Get("/api/backups/download", s.handleBackupDownload)
 
-		pr.Get("/api/cleanup/meta", s.handleCleanupMeta)
-		pr.Post("/api/cleanup/scan", s.handleCleanupScan)
-		pr.Post("/api/cleanup/scan-jobs", s.handleCleanupScanJobCreate)
-		pr.Get("/api/cleanup/scan-jobs/{jobID}", s.handleCleanupScanJobStatus)
-		pr.Post("/api/cleanup/scan-jobs/{jobID}/cancel", s.handleCleanupScanJobCancel)
-		pr.Post("/api/cleanup/garbage", s.handleCleanupGarbage)
 	})
 	return r
 }

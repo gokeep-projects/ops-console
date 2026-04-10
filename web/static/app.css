@@ -38,7 +38,7 @@ button {
 
 body {
   margin: 0;
-  font-family: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Segoe UI", "Heiti SC", "SimHei", sans-serif;
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   color: var(--ink);
   background: linear-gradient(145deg, #f5f8fc, #edf3fb 45%, #f7fafc);
 }
@@ -1452,6 +1452,30 @@ input[type="radio"]:disabled {
   -webkit-line-clamp: 2;
 }
 
+.system-info-item.os-highlight,
+.system-info-quick .system-info-item:first-child {
+  grid-column: span 2;
+  min-height: 78px;
+  padding: 10px 12px;
+  background: linear-gradient(160deg, #eef6ff, #e6f2ff);
+  border-color: rgba(113, 161, 223, 0.9);
+}
+
+.system-info-item.os-highlight .system-info-label,
+.system-info-quick .system-info-item:first-child .system-info-label {
+  color: #3d628d;
+  font-weight: 700;
+}
+
+.system-info-item .system-info-value.os-highlight-value,
+.system-info-quick .system-info-item:first-child .system-info-value.multiline {
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.35;
+  color: #0f3155;
+  -webkit-line-clamp: 3;
+}
+
 .copy-toast {
   position: fixed;
   right: 22px;
@@ -1549,199 +1573,6 @@ input[type="radio"]:disabled {
 
 #monitor .process-top-card .card-head .input {
   min-width: 320px;
-}
-
-#monitor .service-status-card .flow-monitor-ops {
-  width: 100%;
-  justify-content: flex-end;
-}
-
-#flowMonitorSearch {
-  min-width: 320px;
-}
-
-#flowMonitorMeta {
-  margin: 0 0 10px;
-}
-
-.flow-monitor-modal .row {
-  align-items: center;
-}
-
-.flow-monitor-modal .row .input {
-  min-width: 170px;
-}
-
-#flowMonitorModalSearch {
-  min-width: 320px;
-}
-
-.flow-monitor-explorer .row .input {
-  min-width: 150px;
-}
-
-#flowMonitorDetailSearch {
-  min-width: 320px;
-}
-
-.flow-monitor-row-selected td {
-  background: rgba(29, 109, 215, 0.12) !important;
-}
-
-.modal.flow-monitor-modal-xl {
-  width: min(1540px, calc(100vw - 12px));
-  max-height: calc(100vh - 12px);
-}
-
-.modal.flow-monitor-modal-xl .modal-body {
-  max-height: calc(100vh - 82px);
-  padding: 10px 12px;
-}
-
-.modal.flow-monitor-modal-full {
-  width: min(1420px, calc(100vw - 56px));
-  max-height: calc(100vh - 56px);
-  border-radius: 14px;
-  border: 1px solid #d6e2f1;
-  background: #f8fbff;
-  box-shadow: 0 24px 48px rgba(14, 34, 63, 0.2);
-}
-
-.modal.flow-monitor-modal-full .modal-head {
-  padding: 10px 14px;
-  background: linear-gradient(180deg, #f4f8ff, #edf4ff);
-  border-bottom: 1px solid #d8e3f1;
-}
-
-.modal.flow-monitor-modal-full .modal-head h3 {
-  font-size: 16px;
-  color: #183a63;
-}
-
-.modal.flow-monitor-modal-full .modal-body {
-  max-height: calc(100vh - 128px);
-  padding: 12px;
-}
-
-.modal.flow-monitor-modal-full .flow-monitor-modal .row {
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.modal.flow-monitor-modal-full .flow-monitor-modal .input {
-  border: 1px solid #bfd2ea;
-  border-radius: 10px;
-  background: #fff;
-  box-shadow: none;
-}
-
-.modal.flow-monitor-modal-full .flow-monitor-modal .input:focus {
-  border-color: #5d8fcc;
-  box-shadow: 0 0 0 2px rgba(57, 118, 193, 0.15);
-}
-
-.modal.flow-monitor-modal-full #flowMonitorModalSearch {
-  min-width: 360px;
-}
-
-.modal.flow-monitor-modal-full #flowMonitorModalMeta {
-  margin: 4px 0 10px;
-  color: #567291;
-}
-
-.modal.flow-monitor-modal-full #flowMonitorModalTable {
-  max-height: calc(100vh - 260px);
-  overflow: auto;
-  border: 1px solid #d5e1ef;
-  border-radius: 12px;
-  background: #fff;
-}
-
-.modal.flow-monitor-modal-full #flowMonitorModalTable table {
-  min-width: 1380px;
-  border-collapse: separate;
-  border-spacing: 0;
-}
-
-.modal.flow-monitor-modal-full #flowMonitorModalTable table th,
-.modal.flow-monitor-modal-full #flowMonitorModalTable table td {
-  white-space: nowrap;
-  word-break: normal;
-  vertical-align: middle;
-}
-
-.modal.flow-monitor-modal-full #flowMonitorModalTable table th {
-  position: sticky;
-  top: 0;
-  z-index: 4;
-  background: #eef4fb;
-  color: #26486f;
-}
-
-.modal.flow-monitor-modal-full #flowMonitorModalTable table tbody tr:nth-child(odd) td {
-  background: #fbfdff;
-}
-
-.modal.flow-monitor-modal-full #flowMonitorModalTable table tbody tr:hover td {
-  background: rgba(44, 108, 181, 0.08);
-}
-
-.modal.flow-monitor-modal-full #flowMonitorModalTable table th:last-child,
-.modal.flow-monitor-modal-full #flowMonitorModalTable table td:last-child {
-  position: sticky;
-  right: 0;
-  min-width: 86px;
-  text-align: center;
-  border-left: 1px solid #d7e2f1;
-  box-shadow: -1px 0 0 #d7e2f1;
-  z-index: 5;
-  background: #f3f8ff;
-}
-
-#flowMonitorDetailTable,
-#flowMonitorModalTable,
-#flowMonitorList {
-  overflow: auto;
-}
-
-#flowMonitorDetailPanel .table {
-  overflow: auto;
-  max-height: 360px;
-}
-
-.flow-monitor-explorer table th,
-.flow-monitor-explorer table td,
-#flowMonitorDetailPanel table th,
-#flowMonitorDetailPanel table td {
-  white-space: nowrap;
-  word-break: normal;
-}
-
-#flowMonitorList table th:last-child,
-#flowMonitorList table td:last-child,
-#flowMonitorModalTable table th:last-child,
-#flowMonitorModalTable table td:last-child,
-#flowMonitorDetailTable table th:last-child,
-#flowMonitorDetailTable table td:last-child {
-  position: sticky;
-  right: 0;
-  min-width: 86px;
-  text-align: center;
-  z-index: 2;
-  background: #f8fbff;
-}
-
-#flowMonitorList table th:last-child,
-#flowMonitorModalTable table th:last-child,
-#flowMonitorDetailTable table th:last-child {
-  z-index: 4;
-  background: #e9f2ff;
-}
-
-.flow-monitor-json {
-  white-space: pre;
-  word-break: normal;
-  overflow: auto;
 }
 
 #portSearch {
@@ -2967,21 +2798,118 @@ body.remote-desktop-fullscreen {
 }
 
 #logs #logResult.log-view {
-  margin-top: 14px;
-  border-radius: 16px;
+  margin-top: 8px;
+  border-radius: 12px;
   border: 1px solid rgba(15, 95, 216, 0.14);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 250, 255, 0.98));
   color: var(--ink);
-  min-height: 320px;
-  max-height: 460px;
-  padding: 14px;
+  min-height: 220px;
+  max-height: 420px;
+  padding: 8px 10px;
   white-space: normal;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
 }
 
 #logs #logResult .hint {
   color: var(--muted);
-  padding: 4px 2px;
+  padding: 2px 2px;
+}
+
+#logs .panel-head {
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  border-radius: 10px;
+}
+
+#logs .log-source-ops {
+  gap: 6px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding: 6px 8px;
+}
+
+#logs #logSourceSelect {
+  min-width: 220px;
+  max-width: 360px;
+}
+
+#logs .card {
+  padding: 12px;
+  border-radius: 14px;
+}
+
+#logs .row {
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 10px;
+}
+
+#logs #logFileSelector.selector {
+  margin: 6px 0;
+  gap: 6px;
+  max-height: 62px;
+  overflow: auto;
+}
+
+#logs #logFileSelector.selector label {
+  padding: 4px 8px;
+  font-size: 11px;
+  border-radius: 8px;
+}
+
+#logs #logStats.log-stats-grid {
+  gap: 8px;
+  margin-top: 4px;
+}
+
+#logs #logStats .log-stat-card {
+  padding: 8px 10px;
+  border-radius: 10px;
+}
+
+#logs #logStats .log-stat-card strong {
+  font-size: 16px;
+  line-height: 1.1;
+}
+
+#logs #logResult .log-entry-card {
+  margin-bottom: 6px;
+  border-radius: 10px;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: max-content;
+}
+
+#logs #logResult .log-entry-time,
+#logs #logResult .log-entry-level,
+#logs #logResult .log-entry-file,
+#logs #logResult .log-entry-message {
+  white-space: nowrap;
+  line-height: 1.25;
+}
+
+#logs #logResult .log-entry-time {
+  width: 164px;
+  color: #556f8f;
+}
+
+#logs #logResult .log-entry-level {
+  width: 62px;
+  font-weight: 700;
+}
+
+#logs #logResult .log-entry-file {
+  width: 260px;
+  color: #4a688d;
+}
+
+#logs #logResult .log-entry-message {
+  flex: 1 1 auto;
+  color: #1d3554;
+  overflow: visible;
+  word-break: normal;
 }
 
 .log-view.compact {
@@ -3997,6 +3925,11 @@ body.remote-desktop-fullscreen {
     grid-template-columns: 1fr;
   }
 
+  .system-info-item.os-highlight,
+  .system-info-quick .system-info-item:first-child {
+    grid-column: span 1;
+  }
+
   .repair-grid,
   .repair-bottom-grid,
   .repair-form,
@@ -4142,4 +4075,982 @@ body.remote-desktop-fullscreen {
   background: linear-gradient(180deg, #2f7fdf, #1a5cb7) !important;
   color: #ffffff !important;
   box-shadow: 0 10px 18px rgba(12, 57, 127, 0.4) !important;
+}
+
+/* ===== Logs Compact Override 2026-04-10 ===== */
+#logs .panel-head {
+  margin-bottom: 8px !important;
+  padding: 6px 8px !important;
+  border-radius: 10px !important;
+}
+
+#logs .log-source-ops {
+  gap: 6px !important;
+  flex-wrap: nowrap !important;
+  overflow-x: auto !important;
+  padding: 6px 8px !important;
+}
+
+#logs #logSourceSelect {
+  min-width: 220px !important;
+  max-width: 360px !important;
+}
+
+#logs .card {
+  padding: 12px !important;
+  border-radius: 14px !important;
+}
+
+#logs .row {
+  gap: 6px !important;
+  padding: 6px 8px !important;
+  border-radius: 10px !important;
+}
+
+#logs #logFileSelector.selector {
+  margin: 6px 0 !important;
+  gap: 6px !important;
+  max-height: 62px !important;
+  overflow: auto !important;
+}
+
+#logs #logFileSelector.selector label {
+  padding: 4px 8px !important;
+  font-size: 11px !important;
+  border-radius: 8px !important;
+}
+
+#logs #logStats.log-stats-grid {
+  gap: 8px !important;
+  margin-top: 4px !important;
+}
+
+#logs #logStats .log-stat-card {
+  padding: 8px 10px !important;
+  border-radius: 10px !important;
+}
+
+#logs #logStats .log-stat-card strong {
+  font-size: 16px !important;
+  line-height: 1.1 !important;
+}
+
+#logs #logResult.log-view {
+  margin-top: 8px !important;
+  border-radius: 12px !important;
+  min-height: 220px !important;
+  max-height: 420px !important;
+  padding: 8px 10px !important;
+}
+
+#logs #logResult .log-entry-card {
+  margin-bottom: 6px !important;
+  border-radius: 10px !important;
+  padding: 6px 10px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  min-width: max-content !important;
+}
+
+#logs #logResult .log-entry-time,
+#logs #logResult .log-entry-level,
+#logs #logResult .log-entry-file,
+#logs #logResult .log-entry-message {
+  white-space: nowrap !important;
+  line-height: 1.25 !important;
+}
+
+#logs #logResult .log-entry-time {
+  width: 164px !important;
+  color: #556f8f !important;
+}
+
+#logs #logResult .log-entry-level {
+  width: 62px !important;
+  font-weight: 700 !important;
+}
+
+#logs #logResult .log-entry-file {
+  width: 260px !important;
+  color: #4a688d !important;
+}
+
+#logs #logResult .log-entry-message {
+  flex: 1 1 auto !important;
+  color: #1d3554 !important;
+  overflow: visible !important;
+  word-break: normal !important;
+}
+
+/* ===== Flow Detail Modern 2026-04-10 ===== */
+.flow-monitor-detail-modal {
+  width: min(1060px, calc(100vw - 24px)) !important;
+}
+
+.flow-detail-modern {
+  display: grid;
+  gap: 12px;
+}
+
+.flow-detail-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(128, 168, 219, 0.52);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background:
+    radial-gradient(circle at 90% 8%, rgba(79, 156, 250, 0.18), transparent 40%),
+    linear-gradient(160deg, #f7fbff, #edf5ff);
+}
+
+.flow-detail-hero-main h4 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  color: #123b6e;
+}
+
+.flow-detail-hero-main p {
+  margin: 0;
+  color: #4a678a;
+  font-size: 12px;
+}
+
+.flow-detail-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.flow-detail-kpi-card {
+  border: 1px solid rgba(150, 186, 230, 0.55);
+  border-radius: 12px;
+  padding: 8px 10px;
+  background: linear-gradient(170deg, rgba(255, 255, 255, 0.98), rgba(242, 249, 255, 0.96));
+}
+
+.flow-detail-kpi-card span {
+  display: block;
+  font-size: 12px;
+  color: #5b7596;
+}
+
+.flow-detail-kpi-card strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 16px;
+  color: #163d6d;
+}
+
+.flow-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.flow-detail-block {
+  border: 1px solid rgba(152, 188, 232, 0.56);
+  border-radius: 12px;
+  padding: 10px;
+  background: linear-gradient(165deg, #ffffff, #f4f9ff);
+}
+
+.flow-detail-block h5 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #1b4477;
+}
+
+.flow-detail-pairs {
+  display: grid;
+  gap: 6px;
+}
+
+.flow-detail-pairs > div {
+  display: grid;
+  grid-template-columns: 86px 1fr;
+  gap: 8px;
+  align-items: start;
+}
+
+.flow-detail-pairs label {
+  color: #5f7998;
+  font-size: 12px;
+}
+
+.flow-detail-pairs span,
+.flow-detail-pairs code {
+  color: #1a395e;
+  font-size: 12px;
+  line-height: 1.3;
+  word-break: break-all;
+}
+
+.flow-detail-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.flow-detail-raw {
+  border: 1px solid rgba(152, 188, 232, 0.52);
+  border-radius: 12px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.98), rgba(244, 249, 255, 0.94));
+  padding: 8px 10px;
+}
+
+.flow-detail-raw summary {
+  cursor: pointer;
+  color: #315985;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.flow-detail-raw .flow-monitor-json {
+  margin-top: 8px;
+}
+
+@media (max-width: 980px) {
+  .flow-detail-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .flow-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ===== Logs UX Tune 2026-04-10 ===== */
+#logs #logCurrentApp {
+  margin: 4px 0 2px !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+#logs #logFileSelector.selector {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  white-space: nowrap !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  gap: 6px !important;
+  margin: 4px 0 6px !important;
+  padding-bottom: 2px !important;
+}
+
+#logs #logFileSelector.selector label {
+  flex: 0 0 auto !important;
+  white-space: nowrap !important;
+  padding: 3px 8px !important;
+  font-size: 11px !important;
+  border-radius: 8px !important;
+}
+
+#logs #logStats.log-stats-grid {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  gap: 6px !important;
+  margin: 2px 0 6px !important;
+}
+
+#logs #logStats .log-stat-card {
+  appearance: none !important;
+  border: 1px solid rgba(136, 172, 216, 0.5) !important;
+  background: linear-gradient(170deg, #ffffff, #f2f8ff) !important;
+  box-shadow: 0 4px 10px rgba(18, 53, 96, 0.08) !important;
+  min-width: 84px !important;
+  padding: 5px 8px !important;
+  border-radius: 9px !important;
+  display: grid !important;
+  gap: 1px !important;
+  cursor: pointer !important;
+}
+
+#logs #logStats .log-stat-card span {
+  font-size: 11px !important;
+}
+
+#logs #logStats .log-stat-card strong {
+  font-size: 13px !important;
+  line-height: 1.1 !important;
+}
+
+#logs #logStats .log-stat-card.clickable:hover {
+  border-color: rgba(65, 126, 204, 0.66) !important;
+  transform: translateY(-1px);
+}
+
+#logs #logStats .log-stat-card.active {
+  border-color: rgba(31, 102, 196, 0.9) !important;
+  background: linear-gradient(170deg, #eff6ff, #dfeeff) !important;
+  box-shadow: 0 8px 16px rgba(20, 73, 140, 0.16) !important;
+}
+
+#logs #logResult.log-view {
+  margin-top: 8px !important;
+  padding: 8px 10px !important;
+}
+
+#logs #logResult .log-entry-card {
+  margin-bottom: 8px !important;
+  padding: 7px 10px !important;
+  gap: 9px !important;
+  border-radius: 8px !important;
+  cursor: copy !important;
+}
+
+#logs #logResult .log-entry-time,
+#logs #logResult .log-entry-level,
+#logs #logResult .log-entry-file,
+#logs #logResult .log-entry-message {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+#logs #logResult .log-entry-time {
+  width: 146px !important;
+  color: #5a7392 !important;
+}
+
+#logs #logResult .log-entry-level {
+  width: 48px !important;
+}
+
+#logs #logResult .log-entry-file {
+  width: 200px !important;
+  color: #4e6887 !important;
+}
+
+#logs #logResult .log-entry-message {
+  flex: 1 1 auto !important;
+  min-width: 260px !important;
+  color: #17395e !important;
+}
+
+/* ===== App Manager + SSH Modern 2026-04-10 ===== */
+#traffic #trafficConnectionTable {
+  max-height: clamp(420px, 64vh, 920px);
+}
+
+#monitor #flowMonitorList {
+  max-height: clamp(360px, 52vh, 760px);
+}
+
+.traffic-panel [data-traffic-status-summary] {
+  display: none !important;
+}
+
+.flow-monitor-modal-full #flowMonitorModalTable,
+.flow-monitor-modal-xl #flowMonitorDetailTable {
+  max-height: clamp(340px, 56vh, 820px);
+}
+
+#app-manager {
+  --page-ink: #12345b;
+  --page-muted: #4f6f90;
+  --page-border: rgba(127, 168, 220, 0.62);
+  --page-surface-1: linear-gradient(160deg, rgba(255, 255, 255, 0.98), rgba(239, 248, 255, 0.95));
+  --page-surface-2: linear-gradient(158deg, rgba(244, 251, 255, 0.96), rgba(234, 245, 255, 0.92));
+  --page-shadow: 0 16px 34px rgba(13, 44, 83, 0.14);
+  position: relative;
+}
+
+#app-manager::before {
+  content: "";
+  position: absolute;
+  inset: -6px -6px auto -6px;
+  height: 140px;
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 8% 18%, rgba(31, 117, 220, 0.16), transparent 50%),
+    radial-gradient(circle at 92% 8%, rgba(13, 164, 184, 0.14), transparent 44%);
+  pointer-events: none;
+}
+
+#app-manager > * {
+  position: relative;
+  z-index: 1;
+}
+
+.app-manager-hero-card {
+  border: 1px solid rgba(102, 149, 207, 0.48);
+  background:
+    radial-gradient(circle at 90% 12%, rgba(95, 170, 250, 0.28), transparent 42%),
+    linear-gradient(138deg, #f6fbff, #e9f4ff 56%, #e3f1ff);
+}
+
+.app-manager-hero-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.app-manager-hero-head h3 {
+  margin: 0;
+  font-size: 24px;
+  letter-spacing: 0.01em;
+  color: #124074;
+}
+
+.app-manager-hero-badge {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(19, 75, 132, 0.2);
+  background: rgba(19, 75, 132, 0.08);
+  color: #0d4f98;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.app-manager-kpi-grid {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.app-manager-kpi-card {
+  border-radius: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(126, 166, 214, 0.45);
+  background: rgba(255, 255, 255, 0.84);
+  color: #21486f;
+}
+
+.app-manager-kpi-card span {
+  display: block;
+  font-size: 12px;
+  color: #5f7b9d;
+}
+
+.app-manager-kpi-card strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.app-manager-kpi-card.up strong {
+  color: #1b8a5c;
+}
+
+.app-manager-kpi-card.down strong {
+  color: #b7681f;
+}
+
+.app-manager-kpi-card.disabled strong {
+  color: #5b6f89;
+}
+
+#app-manager .app-manager-main-grid {
+  gap: 14px;
+}
+
+.app-manager-filter-row {
+  align-items: center;
+}
+
+.app-manager-filter-row #appManagerSearch {
+  min-width: 260px;
+  flex: 1 1 360px;
+}
+
+.app-manager-filter-row #appManagerStatusFilter,
+.app-manager-filter-row #appManagerEnabledFilter {
+  min-width: 144px;
+}
+
+.app-manager-table {
+  max-height: clamp(440px, 64vh, 900px);
+}
+
+.app-manager-row-selected td {
+  background: rgba(30, 115, 218, 0.13) !important;
+}
+
+.app-manager-row-ops {
+  display: inline-flex;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.app-manager-detail-body {
+  display: grid;
+  gap: 12px;
+}
+
+.app-manager-detail-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  border: 1px solid rgba(136, 174, 220, 0.5);
+  border-radius: 12px;
+  padding: 10px;
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.98), rgba(243, 250, 255, 0.94));
+}
+
+.app-manager-detail-summary > div {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 8px;
+  align-items: start;
+}
+
+.app-manager-detail-summary label {
+  color: #597796;
+  font-size: 12px;
+}
+
+.app-manager-detail-summary span,
+.app-manager-detail-summary strong,
+.app-manager-detail-summary code {
+  color: #1a3d68;
+  font-size: 12px;
+  line-height: 1.35;
+  word-break: break-all;
+}
+
+.app-manager-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.app-manager-detail-block {
+  border: 1px solid rgba(137, 177, 224, 0.52);
+  border-radius: 12px;
+  padding: 10px;
+  background: linear-gradient(165deg, #ffffff, #f3f9ff);
+}
+
+.app-manager-detail-block h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #204b7c;
+}
+
+.app-manager-detail-table {
+  max-height: 280px;
+}
+
+.app-editor-modal-wrap {
+  width: min(1080px, calc(100vw - 24px)) !important;
+}
+
+.app-editor-modal {
+  display: grid;
+  gap: 10px;
+}
+
+.app-editor-modal .row {
+  align-items: center;
+}
+
+.app-editor-enable-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid rgba(130, 171, 218, 0.56);
+  border-radius: 10px;
+  background: linear-gradient(160deg, #ffffff, #eef6ff);
+  color: #27496f;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.app-editor-grid-row {
+  align-items: stretch !important;
+}
+
+.app-editor-field {
+  display: grid;
+  gap: 6px;
+  flex: 1 1 0;
+}
+
+.app-editor-field > span {
+  font-size: 12px;
+  color: #557695;
+  font-weight: 600;
+}
+
+.app-editor-field textarea.input {
+  width: 100%;
+  min-height: 116px;
+  resize: vertical;
+}
+
+.app-editor-actions {
+  justify-content: flex-end;
+}
+
+#ssh-remote {
+  --page-ink: #d9ecff;
+  --page-muted: #9bb7d8;
+  --page-border: rgba(83, 126, 176, 0.6);
+  --page-surface-1: linear-gradient(160deg, rgba(10, 24, 45, 0.98), rgba(8, 20, 38, 0.96));
+  --page-surface-2: linear-gradient(158deg, rgba(17, 37, 68, 0.96), rgba(11, 30, 56, 0.92));
+  --page-shadow: 0 22px 44px rgba(4, 14, 28, 0.5);
+}
+
+#ssh-remote::before {
+  content: "";
+  position: absolute;
+  inset: -6px -6px auto -6px;
+  height: 146px;
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 9% 16%, rgba(54, 138, 255, 0.2), transparent 48%),
+    radial-gradient(circle at 92% 8%, rgba(30, 213, 192, 0.15), transparent 42%);
+  pointer-events: none;
+}
+
+.ssh-card {
+  gap: 12px;
+}
+
+#ssh-remote .card-head h3 {
+  color: #d7ebff;
+}
+
+.ssh-connect-row {
+  border-color: rgba(97, 142, 194, 0.52) !important;
+  background: linear-gradient(160deg, rgba(11, 31, 56, 0.9), rgba(12, 36, 64, 0.86)) !important;
+}
+
+.ssh-connect-row .input {
+  color: #dcecff;
+  border-color: rgba(97, 143, 197, 0.72) !important;
+  background: linear-gradient(165deg, rgba(8, 25, 48, 0.96), rgba(10, 32, 58, 0.9)) !important;
+}
+
+.ssh-connect-row .input::placeholder {
+  color: rgba(169, 194, 224, 0.78);
+}
+
+.ssh-key-row textarea {
+  min-height: 106px;
+  resize: vertical;
+}
+
+.ssh-status-row {
+  border: 1px solid rgba(96, 140, 194, 0.58);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  background: linear-gradient(162deg, rgba(10, 29, 54, 0.92), rgba(11, 34, 62, 0.86));
+}
+
+.ssh-status-row .hint {
+  color: #9dbadb !important;
+}
+
+.ssh-terminal-wrap {
+  border: 1px solid rgba(96, 139, 192, 0.62);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 89% 11%, rgba(63, 156, 255, 0.16), transparent 42%),
+    linear-gradient(180deg, #061428, #07192f 52%, #081d37);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 20px 34px rgba(4, 12, 24, 0.44);
+  min-height: clamp(380px, 66vh, 840px);
+  overflow: hidden;
+}
+
+.ssh-terminal {
+  height: clamp(380px, 66vh, 840px);
+  width: 100%;
+  padding: 8px;
+}
+
+.ssh-terminal .xterm-viewport {
+  border-radius: 8px;
+}
+
+@media (max-width: 1100px) {
+  .app-manager-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .app-manager-detail-summary {
+    grid-template-columns: 1fr;
+  }
+}
+
+.traffic-title-count {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ===== Ultra Modern Non-Monitor Redesign 2026-04-10 ===== */
+:is(#logs, #app-manager, #traffic, #repair, #backup, #cleanup, #docker, #remote-control, #ssh-remote, #system) {
+  --neo-text: #0d2a4a;
+  --neo-muted: #4f6f91;
+  --neo-border: rgba(130, 170, 220, 0.48);
+  --neo-surface: linear-gradient(155deg, rgba(255, 255, 255, 0.86), rgba(241, 249, 255, 0.8));
+  --neo-shadow: 0 22px 44px rgba(14, 40, 78, 0.16);
+  --neo-accent-a: #1a7ef5;
+  --neo-accent-b: #0bc0d9;
+  --neo-accent-c: #1fb584;
+  --neo-accent-d: #f29d35;
+  position: relative;
+  animation: neoPanelFadeIn 0.36s ease both;
+}
+
+:is(#logs, #app-manager, #traffic, #repair, #backup, #cleanup, #docker, #remote-control, #ssh-remote, #system)::before {
+  content: "";
+  position: absolute;
+  inset: -8px -8px auto -8px;
+  height: 148px;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 8% 20%, rgba(26, 126, 245, 0.18), transparent 52%),
+    radial-gradient(circle at 92% 10%, rgba(11, 192, 217, 0.16), transparent 44%),
+    radial-gradient(circle at 74% 52%, rgba(31, 181, 132, 0.1), transparent 36%);
+  pointer-events: none;
+}
+
+:is(#logs, #app-manager, #traffic, #repair, #backup, #cleanup, #docker, #remote-control, #ssh-remote, #system) > * {
+  position: relative;
+  z-index: 1;
+}
+
+:is(#logs, #app-manager, #traffic, #repair, #backup, #cleanup, #docker, #remote-control, #ssh-remote, #system) .card {
+  border: 1px solid var(--neo-border);
+  border-radius: 20px;
+  background: var(--neo-surface);
+  box-shadow: var(--neo-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(7px);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  animation: neoCardRise 0.32s ease both;
+}
+
+:is(#logs, #app-manager, #traffic, #repair, #backup, #cleanup, #docker, #remote-control, #ssh-remote, #system) .card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(97, 146, 210, 0.72);
+  box-shadow: 0 28px 52px rgba(11, 34, 66, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.94);
+}
+
+:is(#logs, #app-manager, #traffic, #repair, #backup, #cleanup, #docker, #remote-control, #ssh-remote, #system) .card-head h3 {
+  font-family: "Bahnschrift", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--neo-text);
+}
+
+:is(#logs, #app-manager, #traffic, #repair, #backup, #cleanup, #docker, #remote-control, #ssh-remote, #system) .hint {
+  color: var(--neo-muted);
+}
+
+:is(#logs, #app-manager, #traffic, #repair, #backup, #cleanup, #docker, #remote-control, #ssh-remote, #system) .row {
+  border: 1px solid rgba(150, 188, 232, 0.55);
+  border-radius: 14px;
+  background: linear-gradient(155deg, rgba(255, 255, 255, 0.76), rgba(241, 248, 255, 0.68));
+}
+
+:is(#logs, #app-manager, #traffic, #repair, #backup, #cleanup, #docker, #remote-control, #ssh-remote, #system) .input {
+  border-radius: 12px;
+  border-color: rgba(118, 161, 214, 0.72);
+  color: #14365d;
+  background: linear-gradient(165deg, #ffffff, #edf6ff);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 1px 2px rgba(20, 50, 85, 0.08);
+}
+
+:is(#logs, #app-manager, #traffic, #repair, #backup, #cleanup, #docker, #remote-control, #ssh-remote, #system) .input:focus {
+  border-color: rgba(28, 121, 219, 0.9);
+  box-shadow: 0 0 0 3px rgba(28, 121, 219, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.94);
+}
+
+:is(#logs, #app-manager, #traffic, #repair, #backup, #cleanup, #docker, #remote-control, #ssh-remote, #system) .btn:not(.fs-tree-toggle) {
+  border-radius: 12px;
+  border: 1px solid rgba(74, 133, 204, 0.72);
+  color: #0c3a66;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.06) 48%),
+    linear-gradient(150deg, #f8fcff, #d9ebff);
+  box-shadow: 0 12px 24px rgba(14, 49, 97, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+:is(#logs, #app-manager, #traffic, #repair, #backup, #cleanup, #docker, #remote-control, #ssh-remote, #system) .btn:not(.fs-tree-toggle):hover {
+  color: #08345c;
+  border-color: rgba(40, 107, 187, 0.88);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.08) 48%),
+    linear-gradient(146deg, #ebf6ff, #cde6ff);
+  box-shadow: 0 16px 28px rgba(14, 49, 97, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+:is(#logs, #app-manager, #traffic, #repair, #backup, #cleanup, #docker, #remote-control, #ssh-remote, #system) .btn.danger {
+  border-color: rgba(182, 73, 58, 0.75);
+  color: #fff;
+  background:
+    linear-gradient(160deg, #f0705d, #cc3f33);
+  box-shadow: 0 14px 26px rgba(172, 54, 43, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.26);
+}
+
+:is(#logs, #app-manager, #traffic, #repair, #backup, #cleanup, #docker, #remote-control, #ssh-remote, #system) .table {
+  border-radius: 14px;
+  border: 1px solid rgba(150, 186, 229, 0.6);
+  background: linear-gradient(168deg, rgba(255, 255, 255, 0.96), rgba(243, 250, 255, 0.9));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+:is(#logs, #app-manager, #traffic, #repair, #backup, #cleanup, #docker, #remote-control, #ssh-remote, #system) .table table th {
+  background: linear-gradient(180deg, #f0f7ff, #e5f1ff);
+  color: #1b4a7d;
+  border-bottom: 1px solid rgba(142, 179, 223, 0.76);
+}
+
+:is(#logs, #app-manager, #traffic, #repair, #backup, #cleanup, #docker, #remote-control, #ssh-remote, #system) .table td {
+  padding-top: 11px;
+  padding-bottom: 11px;
+}
+
+:is(#logs, #app-manager, #traffic, #repair, #backup, #cleanup, #docker, #remote-control, #ssh-remote, #system) .table tbody tr:hover td {
+  background: linear-gradient(90deg, rgba(33, 128, 232, 0.09), rgba(13, 177, 201, 0.08));
+}
+
+#logs .log-source-ops,
+#traffic .traffic-kpi-grid,
+#docker .docker-pagination,
+#docker .docker-batch-actions,
+#remote-control .remote-status-row,
+#ssh-remote .ssh-status-row,
+#backup .backup-source-summary,
+#system .system-simple-note {
+  border: 1px solid rgba(140, 181, 227, 0.62);
+  border-radius: 14px;
+  background: linear-gradient(156deg, rgba(255, 255, 255, 0.82), rgba(238, 247, 255, 0.76));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+#logs #logResult .log-entry-card {
+  border-left: 4px solid rgba(28, 121, 219, 0.55);
+  border-radius: 10px !important;
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.98), rgba(246, 251, 255, 0.92));
+  box-shadow: 0 10px 20px rgba(14, 42, 79, 0.1);
+}
+
+#logs #logResult .log-entry-card.error {
+  border-left-color: rgba(190, 68, 52, 0.82);
+}
+
+#logs #logResult .log-entry-card.warn {
+  border-left-color: rgba(203, 131, 34, 0.84);
+}
+
+#app-manager .app-manager-hero-card,
+#docker .docker-hero-card,
+#traffic .traffic-hero-card,
+#repair .repair-hero {
+  border: 1px solid rgba(109, 160, 224, 0.54);
+  background:
+    radial-gradient(circle at 92% 12%, rgba(79, 161, 255, 0.24), transparent 42%),
+    linear-gradient(136deg, #f7fbff, #eaf5ff 58%, #e3f1ff);
+}
+
+#remote-control .remote-desktop-wrap {
+  border: 1px solid rgba(95, 144, 203, 0.7);
+  border-radius: 16px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 22px 36px rgba(7, 21, 40, 0.32);
+}
+
+#ssh-remote {
+  --neo-text: #d8ebff;
+  --neo-muted: #96b7de;
+  --neo-border: rgba(95, 140, 196, 0.58);
+  --neo-surface: linear-gradient(158deg, rgba(10, 28, 52, 0.95), rgba(8, 23, 44, 0.92));
+  --neo-shadow: 0 22px 46px rgba(4, 13, 26, 0.5);
+}
+
+#ssh-remote .card-head h3,
+#ssh-remote .hint {
+  color: #d7ebff;
+}
+
+#ssh-remote .row {
+  border-color: rgba(97, 142, 194, 0.56);
+  background: linear-gradient(160deg, rgba(10, 30, 56, 0.94), rgba(10, 34, 61, 0.9));
+}
+
+#ssh-remote .input {
+  color: #dcecff;
+  border-color: rgba(99, 144, 198, 0.72);
+  background: linear-gradient(165deg, rgba(8, 25, 48, 0.98), rgba(10, 32, 58, 0.92));
+}
+
+#ssh-remote .input::placeholder {
+  color: rgba(165, 193, 228, 0.78);
+}
+
+#ssh-remote .ssh-terminal-wrap {
+  border-radius: 16px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 26px 44px rgba(4, 13, 27, 0.48);
+}
+
+#system .runtime-log-item {
+  border-left: 4px solid rgba(28, 121, 219, 0.4);
+}
+
+#system .runtime-log-item.warn {
+  border-left-color: rgba(203, 131, 34, 0.64);
+}
+
+#system .runtime-log-item.error {
+  border-left-color: rgba(190, 68, 52, 0.72);
+}
+
+@keyframes neoPanelFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes neoCardRise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 1280px) {
+  :is(#logs, #app-manager, #traffic, #repair, #backup, #cleanup, #docker, #remote-control, #ssh-remote, #system) .card-head h3 {
+    font-size: 17px;
+  }
+}
+
+@media (max-width: 960px) {
+  :is(#logs, #app-manager, #traffic, #repair, #backup, #cleanup, #docker, #remote-control, #ssh-remote, #system)::before {
+    height: 118px;
+  }
+
+  :is(#logs, #app-manager, #traffic, #repair, #backup, #cleanup, #docker, #remote-control, #ssh-remote, #system) .card {
+    border-radius: 16px;
+  }
 }

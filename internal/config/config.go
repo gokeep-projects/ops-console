@@ -587,16 +587,17 @@ func EnsurePipelineDefaults(cfg *Config) bool {
 
 func defaultMenuVisibility() map[string]bool {
 	return map[string]bool{
-		"monitor":         true,
-		"logs":            true,
-		"app-manager":     true,
-		"traffic-capture": true,
-		"repair":          true,
-		"backup":          true,
-		"cleanup":         true,
-		"docker":          true,
-		"remote-control":  true,
-		"system":          true,
+		"monitor":        true,
+		"logs":           true,
+		"app-manager":    true,
+		"traffic":        true,
+		"repair":         true,
+		"backup":         true,
+		"cleanup":        true,
+		"docker":         true,
+		"remote-control": true,
+		"ssh-remote":     true,
+		"system":         true,
 	}
 }
 
